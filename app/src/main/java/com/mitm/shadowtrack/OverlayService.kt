@@ -74,8 +74,12 @@ class OverlayService : Service() {
 
     // Normal label color for user-mode toggles
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
-    // Red when a battle is active for that slot
-    private val labelColorActive = Color.parseColor("#FFFF4444")
+    
+    // Unique colors for each battle mode (bright, distinct colors)
+    private val colorEvent   = Color.parseColor("#FF00E5FF")  // Cyan
+    private val colorClan    = Color.parseColor("#FF9D4EDD")  // Purple
+    private val colorBrawler = Color.parseColor("#FFFF6B35") // Orange
+    private val colorRaid    = Color.parseColor("#FF39FF14")  // Lime green
 
     // Switch track/thumb color states
     private val switchOnColor  = Color.parseColor("#FF3FB950")
@@ -247,25 +251,43 @@ class OverlayService : Service() {
         return last >= adapter.itemCount - 2
     }
 
+    // ── Mini view HS text color ────────────────────────────────────────────
+
+    private fun updateMiniHsColor() {
+        val tv = miniView?.findViewById<TextView>(R.id.tv_mini_hs) ?: return
+        // Determine which mode is active (prioritize: Raid > Brawler > Event > Clan)
+        val activeColor = when {
+            AppState.viewModel.raidFightActive.value == true && userRaidEnabled -> colorRaid
+            brawlerBattleActive && userBrawlerEnabled -> colorBrawler
+            activeBattleType == BattleType.EVENT && userEventBattleEnabled -> colorEvent
+            activeBattleType == BattleType.CLAN && userClanBattleEnabled -> colorClan
+            else -> Color.WHITE
+        }
+        tv.setTextColor(activeColor)
+    }
+
     // ── User mode label helpers ────────────────────────────────────────────
 
     private fun updateUserModeBattleLabels() {
         val v = overlayView ?: return
         val tvEvent = v.findViewById<TextView>(R.id.tv_label_event_battle) ?: return
         val tvClan  = v.findViewById<TextView>(R.id.tv_label_clan_battle)  ?: return
-        tvEvent.setTextColor(if (activeBattleType == BattleType.EVENT) labelColorActive else labelColorNormal)
-        tvClan.setTextColor(if (activeBattleType == BattleType.CLAN)  labelColorActive else labelColorNormal)
+        tvEvent.setTextColor(if (activeBattleType == BattleType.EVENT) colorEvent else labelColorNormal)
+        tvClan.setTextColor(if (activeBattleType == BattleType.CLAN)  colorClan  else labelColorNormal)
+        updateMiniHsColor()
     }
 
     private fun updateUserModeRaidLabel(raidActive: Boolean) {
         val v = overlayView ?: return
         val tvRaid = v.findViewById<TextView>(R.id.tv_label_raid) ?: return
-        tvRaid.setTextColor(if (raidActive) labelColorActive else labelColorNormal)
+        tvRaid.setTextColor(if (raidActive) colorRaid else labelColorNormal)
+        updateMiniHsColor()
     }
 
     private fun updateUserModeBrawlerLabel() {
         val tv = overlayView?.findViewById<TextView>(R.id.tv_label_brawler) ?: return
-        tv.setTextColor(if (brawlerBattleActive) labelColorActive else labelColorNormal)
+        tv.setTextColor(if (brawlerBattleActive) colorBrawler else labelColorNormal)
+        updateMiniHsColor()
     }
 
     private fun updateBrawlerPanel() {

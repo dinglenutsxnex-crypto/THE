@@ -9,6 +9,7 @@
 
     <!-- Layer 1 (bottom): [HS] text — sits BEHIND the GIF so the cyan effect sweeps over it -->
     <TextView
+        android:id="@+id/tv_mini_hs"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
