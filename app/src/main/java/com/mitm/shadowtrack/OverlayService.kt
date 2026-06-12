@@ -777,6 +777,20 @@ class OverlayService : Service() {
             }
         }
 
+        // ── Row click handlers for user mode toggles ─────────────────────
+        view.findViewById<View>(R.id.row_event_battle)?.setOnClickListener {
+            swEvent.isChecked = !swEvent.isChecked
+        }
+        view.findViewById<View>(R.id.row_clan_battle)?.setOnClickListener {
+            swClan.isChecked = !swClan.isChecked
+        }
+        view.findViewById<View>(R.id.row_raid)?.setOnClickListener {
+            swRaid.isChecked = !swRaid.isChecked
+        }
+        view.findViewById<View>(R.id.row_brawler)?.setOnClickListener {
+            swBrawler.isChecked = !swBrawler.isChecked
+        }
+
         // ── ARM BRAWLER WIN button (dev mode brawler intercept) ──────────
         view.findViewById<TextView>(R.id.btn_brawler_win)?.setOnClickListener {
             if (TrafficVpnService.instance == null) {
