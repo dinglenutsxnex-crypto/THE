@@ -1,0 +1,44 @@
+/**
+ * Signing Configuration for Release Builds
+ * 
+ * This file is loaded by app/build.gradle to configure release signing.
+ * For CI/CD environments, secrets are passed via environment variables.
+ * For local development, add your keystore credentials to local.properties:
+ * 
+ * keystore=/path/to/your/release.keystore
+ * keystore.password=your_password
+ * key.alias=your_alias
+ * key.password=your_key_password
+ */
+
+// Check for CI/CD environment variables first (GitHub Actions, etc.)
+def keystorePath = System.getenv('KEYSTORE_PATH') ?: 
+                   project.hasProperty('keystore') ? project.property('keystore') : null
+
+def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: 
+                       project.hasProperty('keystore.password') ? project.property('keystore.password') : null
+
+def keyAlias = System.getenv('KEY_ALIAS') ?: 
+              project.hasProperty('key.alias') ? project.property('key.alias') : null
+
+def keyPassword = System.getenv('KEY_PASSWORD') ?: 
+                  project.hasProperty('key.password') ? project.property('key.password') : null
+
+// If all signing parameters are available, configure signing
+if (keystorePath && keystorePassword && keyAlias && keyPassword) {
+    android {
+        signingConfigs {
+            release {
+                storeFile file(keystorePath)
+                storePassword keystorePassword
+                keyAlias keyAlias
+                keyPassword keyPassword
+            }
+        }
+    }
+    println("✓ Release signing configured for ${keyAlias}")
+} else {
+    println("⚠ Release signing not fully configured.")
+    println("  For release builds, set: KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD")
+    println("  Or add to local.properties: keystore, keystore.password, key.alias, key.password")
+}

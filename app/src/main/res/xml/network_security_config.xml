@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Base configuration - no cleartext traffic allowed -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust only system CAs -->
+            <certificates src="system" />
+            <!-- Do not trust user-installed certificates by default -->
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Domain-specific configuration for your game server -->
+    <domain-config cleartextTrafficPermitted="false">
+        <!-- Replace with your actual game server domain -->
+        <domain includeSubdomains="true">your-game-server.com</domain>
+        <domain includeSubdomains="true">api.your-game-server.com</domain>
+        
+        <!-- Pin the certificate - REPLACE WITH YOUR ACTUAL CERT HASH -->
+        <pin-set expiration="2025-12-31">
+            <!-- Primary pin - SHA256 of your server's certificate -->
+            <pin digest="SHA-256">BASE64_ENCODED_CERT_HASH_HERE</pin>
+            <!-- Backup pin for certificate rotation -->
+            <pin digest="SHA-256">BASE64_ENCODED_BACKUP_CERT_HASH_HERE</pin>
+        </pin-set>
+        
+        <!-- Trust additional CAs if needed for your game server -->
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Config for debugging - ONLY in debug builds -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
+    
+    <!-- Disable cleartext for all domains by default -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
