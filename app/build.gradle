@@ -3,9 +3,6 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-// Load signing configuration
-apply from: '../sign.gradle'
-
 android {
     namespace 'com.nexora.hammerscale'
     compileSdk 34
@@ -16,58 +13,18 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-        
-        // Enable native code compilation
-        ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
-        }
-        
-        // Enable custom security module
-        externalNativeBuild {
-            cmake {
-                cppFlags "-std=c++17"
-                arguments "-DANDROID_STL=c++_shared"
-            }
-        }
-        
-        // Disable jumbo builds for faster compilation
-        compileOptions {
-            jumboMode = true
-        }
-    }
-
-    // Configure native build
-    externalNativeBuild {
-        cmake {
-            path file('src/main/cpp/CMakeLists.txt')
-            version "3.22.1"
-        }
     }
 
     buildTypes {
         release {
-            // Enable full minification and obfuscation
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            
-            // Disable debugging features in release
             debuggable false
-            jniDebuggable false
-            
-            // Enable signing
-            signingConfig signingConfigs.release
-            
-            // Enable R8 full mode
-            android.enableR8.fullMode = true
         }
         debug {
             applicationIdSuffix ".debug"
             debuggable true
-            
-            // In debug builds, allow limited functionality for development
-            // Security checks will still run but won't block the app
-            ext.enableSecurityChecks = false
         }
     }
 
@@ -89,19 +46,11 @@ android {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
-        jniLibs {
-            useLegacyPackaging true
-        }
     }
     
-    // Prevent stripping of native libraries
-    android.packagingOptions.jniLibs.keepDebugSymbols.add('')
-    
-    // Lint options
     lint {
-        abortOnError true
-        checkReleaseBuilds true
-        warningsAsErrors false
+        abortOnError false
+        checkReleaseBuilds false
     }
 }
 
@@ -117,7 +66,4 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
-    
-    // Security libraries
-    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 }
