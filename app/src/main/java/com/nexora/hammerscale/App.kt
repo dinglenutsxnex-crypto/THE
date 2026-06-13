@@ -1,7 +1,6 @@
 package com.nexora.hammerscale
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -9,9 +8,6 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
-import androidx.lifecycle.ProcessLifecycleOwner
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
@@ -97,9 +93,6 @@ class App : android.app.Application() {
             val elapsed = System.currentTimeMillis() - startTime
             Log.d(TAG, "=== ALL SECURITY CHECKS PASSED (${elapsed}ms) ===")
             securityCheckPassed = true
-            
-            // Start integrity monitoring
-            startIntegrityMonitoring()
             
         } catch (e: Exception) {
             Log.e(TAG, "Security check crashed: ${e.message}", e)
@@ -261,37 +254,6 @@ class App : android.app.Application() {
         } catch (e: Exception) {
             "Unknown"
         }
-    }
-
-    private fun startIntegrityMonitoring() {
-        // Monitor for runtime integrity issues
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onResume(owner: LifecycleOwner) {
-                // Check when app comes to foreground
-                verifyIntegrity()
-            }
-            
-            override fun onStop(owner: LifecycleOwner) {
-                // App going to background - verify state
-            }
-        })
-    }
-
-    private fun verifyIntegrity() {
-        // Quick re-check when returning to foreground
-        Thread {
-            try {
-                // Check for new suspicious apps installed
-                val threats = SecurityModule.getDetectedThreats(instance)
-                if (threats.isNotEmpty()) {
-                    Log.w(TAG, "New threats detected on resume!")
-                    // Don't immediately kill - could be false positive
-                    // Just log and continue, but be more paranoid
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Integrity check failed", e)
-            }
-        }.start()
     }
 
     /**

@@ -822,10 +822,7 @@ object SecurityModule {
             val signatures = pi.signatures
             
             // Check for debug signature (should not be present in release)
-            if (Build.DEBUG) {
-                return false // Allow debug in debug builds
-            }
-            
+            // In release builds, we check if there's a debug signature
             signatures?.any { it.toCharsString().contains("DEBUG") } == true
         } catch (e: Exception) { false }
     }
@@ -876,13 +873,11 @@ object SecurityModule {
     external fun nativeCheckAll(): Boolean
     external fun nativeGetDetectionMask(): Int
 
-    companion object {
-        init {
-            try {
-                System.loadLibrary("securitymodule")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "Native security module not loaded, using Java-only checks")
-            }
+    init {
+        try {
+            System.loadLibrary("securitymodule")
+        } catch (e: UnsatisfiedLinkError) {
+            // Native library not available, use Java-only checks
         }
     }
 }
