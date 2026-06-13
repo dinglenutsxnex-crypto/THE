@@ -94,7 +94,6 @@ jobs:
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --no-daemon --stacktrace
-        continue-on-error: true
 
       - name: Verify APK Exists
         run: |
