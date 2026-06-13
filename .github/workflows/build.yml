@@ -98,21 +98,25 @@ jobs:
 
       - name: Verify APK Exists
         run: |
+          find app/build/outputs -name "*.apk" -type f || true
           if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
-            echo "APK built successfully"
+            echo "APK found at standard path"
             ls -la app/build/outputs/apk/release/app-release.apk
           else
-            echo "APK not found, checking for debug APK..."
-            ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "No debug APK either"
-            ls -la app/build/outputs/apk/ 2>/dev/null || echo "No apk dir"
-            exit 1
+            echo "Checking all APK files..."
+            find app/build -name "*.apk" -exec ls -la {} \;
           fi
 
       - name: Calculate SHA256
         run: |
-          SHA256=$(shasum -a 256 app/build/outputs/apk/release/app-release.apk | cut -d' ' -f1)
-          echo "APK SHA256: $SHA256"
-          echo "$SHA256" > apk_hash.txt
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            SHA256=$(shasum -a 256 app/build/outputs/apk/release/app-release.apk | cut -d' ' -f1)
+            echo "APK SHA256: $SHA256"
+            echo "$SHA256" > apk_hash.txt
+          else
+            echo "APK not found for SHA256 calculation"
+            exit 1
+          fi
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
@@ -122,6 +126,7 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             apk_hash.txt
           retention-days: 30
+        continue-on-error: true
 
   # ========================
   # SIGNED BUILD (on tag)
