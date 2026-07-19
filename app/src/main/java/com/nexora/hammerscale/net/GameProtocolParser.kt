@@ -131,6 +131,16 @@ object GameProtocolParser {
                     if (cmd == "brawler_finish") return true
                     pos += 5 + compLen
                 }
+                // Type 0x03: small compressed frame — 1-byte type, 1-byte compressed-length, raw DEFLATE payload
+                0x03 -> {
+                    if (pos + 2 > data.size) break
+                    val compLen = data[pos + 1].toInt() and 0xFF
+                    if (compLen <= 0 || pos + 2 + compLen > data.size) break
+                    val payload = rawDeflate(data.copyOfRange(pos + 2, pos + 2 + compLen)) ?: break
+                    val cmd = (readProtoFields(payload)[2] as? ByteArray)?.toString(Charsets.UTF_8)
+                    if (cmd == "brawler_finish") return true
+                    pos += 2 + compLen
+                }
                 else -> pos++
             }
         }
@@ -179,6 +189,15 @@ object GameProtocolParser {
                     val len = ByteBuffer.wrap(data, 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
                     if (len <= 0 || data.size < 5 + len) null
                     else rawDeflate(data.copyOfRange(5, 5 + len))
+                }
+            }
+            // Type 0x03: small compressed frame — 1-byte type, 1-byte compressed-length, raw DEFLATE payload
+            0x03 -> {
+                if (data.size < 2) null
+                else {
+                    val len = data[1].toInt() and 0xFF
+                    if (data.size < 2 + len) null
+                    else rawDeflate(data.copyOfRange(2, 2 + len))
                 }
             }
             else -> null

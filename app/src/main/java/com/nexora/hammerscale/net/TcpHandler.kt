@@ -466,6 +466,35 @@ class TcpHandler(
                         }
                     }
                 }
+                // Type 0x03: small compressed frame — 1-byte type, 1-byte compressed-length, raw DEFLATE payload
+                0x03 -> {
+                    if (pos + 2 > raw.size) break
+                    val compLen = raw[pos + 1].toInt() and 0xFF
+                    when {
+                        compLen <= 0 -> {
+                            if (conn != null) {
+                                conn.inboundResyncBytes++
+                                if (conn.inboundResyncBytes > MAX_RESYNC_BYTES) {
+                                    conn.inboundResyncBytes = 0
+                                    return
+                                }
+                            }
+                            pos++
+                        }
+                        pos + 2 + compLen > raw.size -> break
+                        else -> {
+                            conn?.inboundResyncBytes = 0
+                            val frame03 = raw.copyOfRange(pos, pos + 2 + compLen)
+                            val cmdName = extractCommandName(frame03)
+                            onMessage(connId, makeMessage(dir, frame03, cmdName))
+                            if (dir == LiveMessage.Direction.INBOUND) {
+                                sniffClanStart(frame03)
+                                sniffEventBattleStart(frame03)
+                            }
+                            pos += 2 + compLen
+                        }
+                    }
+                }
                 else -> {
                     if (conn != null && dir == LiveMessage.Direction.INBOUND) {
                         conn.inboundResyncBytes++
