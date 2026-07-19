@@ -100,13 +100,57 @@ class TcpHandler(
     }
 
     private fun sniffPingAck(frame: ByteArray) {
-        // Fast-path: check command name without full parse
         val cmdName = extractCommandName(frame) ?: return
         if (cmdName != "ping") return
         val cb = pingAckCallback ?: return
-        pingAckCallback = null          // consume — one-shot
+        pingAckCallback = null
         android.util.Log.d("HammerDuel", "sniffPingAck: server ping ack received")
         cb()
+    }
+
+    // Login-ready signal: fires after SF3 sends `loginReadyPingsNeeded` outbound pings.
+    // Indicates SF3 has reconnected and finished its login/clan handshake.
+    @Volatile private var loginReadyCallback: (() -> Unit)? = null
+    private val loginReadyPingCount = java.util.concurrent.atomic.AtomicInteger(0)
+    private val loginReadyPingsNeeded = 3
+
+    fun armLoginReady(onReady: () -> Unit) {
+        loginReadyPingCount.set(0)
+        loginReadyCallback = onReady
+        android.util.Log.d("HammerDuel", "armLoginReady: armed (need $loginReadyPingsNeeded SF3 outbound pings)")
+    }
+
+    fun disarmLoginReady() {
+        loginReadyCallback = null
+        loginReadyPingCount.set(0)
+    }
+
+    private fun sniffSf3Ping(frame: ByteArray) {
+        val cb = loginReadyCallback ?: return
+        val cmdName = extractCommandName(frame) ?: return
+        if (cmdName != "ping") return
+        val n = loginReadyPingCount.incrementAndGet()
+        android.util.Log.d("HammerDuel", "sniffSf3Ping: SF3 outbound ping #$n")
+        if (n >= loginReadyPingsNeeded) {
+            loginReadyCallback = null
+            loginReadyPingCount.set(0)
+            android.util.Log.d("HammerDuel", "sniffSf3Ping: login-ready fired after $n pings")
+            cb()
+        }
+    }
+
+    // When true, SF3's outgoing payload is parsed/ACK'd but NOT forwarded to the server.
+    // We drive the session ourselves via injectDirect.
+    @Volatile var hijackBlockOutgoing: Boolean = false
+
+    // Close the server-side socket for a specific connection.
+    // readerLoop will hit EOF → sendFin → SF3 gets FIN/RST → SF3 reconnects.
+    fun resetServerSocket(connId: String) {
+        val conn = connections[connId] ?: return
+        android.util.Log.d("HammerDuel", "resetServerSocket: closing server channel for $connId")
+        scope.launch {
+            try { conn.channel?.close() } catch (_: Exception) {}
+        }
     }
 
     private fun sniffDuelHijack(connId: String, frame: ByteArray) {
@@ -287,7 +331,11 @@ class TcpHandler(
             conn.outboundSf3Buffer.write(payloadForServer)
             parseSf3Frames(conn.connId, conn.outboundSf3Buffer, LiveMessage.Direction.OUTBOUND)
 
-            conn.outboundQueue.trySend(payloadForServer)
+            // In hijack mode we drive the server ourselves — drop SF3's packets silently.
+            // SF3 already got an ACK above so it thinks its data was delivered.
+            if (!hijackBlockOutgoing) {
+                conn.outboundQueue.trySend(payloadForServer)
+            }
         } else {
             conn.outboundWsBuffer.write(packet.payload)
             parseWsFrames(conn.connId, conn.outboundWsBuffer, LiveMessage.Direction.OUTBOUND)
@@ -481,6 +529,8 @@ class TcpHandler(
                         sniffEventBattleStart(frame01)
                         if (duelHijackArmed.get()) sniffDuelHijack(connId, frame01)
                         if (pingAckCallback != null) sniffPingAck(frame01)
+                    } else {
+                        if (loginReadyCallback != null) sniffSf3Ping(frame01)
                     }
                     pos += 2 + len
                 }
@@ -510,6 +560,8 @@ class TcpHandler(
                                 sniffEventBattleStart(frame02)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame02)
                                 if (pingAckCallback != null) sniffPingAck(frame02)
+                            } else {
+                                if (loginReadyCallback != null) sniffSf3Ping(frame02)
                             }
                             pos += 5 + compLen
                         }
@@ -541,6 +593,8 @@ class TcpHandler(
                                 sniffEventBattleStart(frame03)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame03)
                                 if (pingAckCallback != null) sniffPingAck(frame03)
+                            } else {
+                                if (loginReadyCallback != null) sniffSf3Ping(frame03)
                             }
                             pos += 2 + compLen
                         }
