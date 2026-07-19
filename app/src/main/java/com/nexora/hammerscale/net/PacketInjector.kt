@@ -365,6 +365,20 @@ object PacketInjector {
                     }
                     pos += 5 + compLen
                 }
+                // Type 0x03: small compressed frame — 1-byte type, 1-byte compressed-length, raw DEFLATE payload
+                0x03 -> {
+                    if (pos + 2 > data.size) return null
+                    val compLen = data[pos + 1].toInt() and 0xFF
+                    if (compLen <= 0 || pos + 2 + compLen > data.size) return null
+                    val rawProto = rawInflate(data.copyOfRange(pos + 2, pos + 2 + compLen)) ?: return null
+                    val patched = tryPatchBrawlerProto(rawProto)
+                    if (patched != null) {
+                        val before = data.copyOfRange(0, pos)
+                        val after  = data.copyOfRange(pos + 2 + compLen, data.size)
+                        return before + patched + after
+                    }
+                    pos += 2 + compLen
+                }
                 else -> pos++
             }
         }
