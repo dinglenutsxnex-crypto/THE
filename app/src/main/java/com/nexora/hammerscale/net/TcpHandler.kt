@@ -73,6 +73,30 @@ class TcpHandler(
 
     private val brawlerInterceptArmed = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    private val duelHijackArmed = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var duelHijackCallback: ((connId: String, enemyBlob: ByteArray) -> Unit)? = null
+
+    fun armDuelHijack(onEnemyBlob: (connId: String, enemyBlob: ByteArray) -> Unit) {
+        duelHijackCallback = onEnemyBlob
+        duelHijackArmed.set(true)
+        android.util.Log.d("HammerDuel", "TcpHandler.armDuelHijack: ARMED")
+    }
+
+    fun disarmDuelHijack() {
+        duelHijackArmed.set(false)
+        duelHijackCallback = null
+        android.util.Log.d("HammerDuel", "TcpHandler.disarmDuelHijack: CLEARED")
+    }
+
+    private fun sniffDuelHijack(connId: String, frame: ByteArray) {
+        val blob = GameProtocolParser.extractBrawlerStartEnemyBlob(frame) ?: return
+        duelHijackArmed.set(false)
+        val cb = duelHijackCallback
+        duelHijackCallback = null
+        android.util.Log.d("HammerDuel", "sniffDuelHijack: got enemy blob ${blob.size}B, firing callback")
+        cb?.invoke(connId, blob)
+    }
+
     fun armBrawlerIntercept() {
         brawlerInterceptArmed.set(true)
         android.util.Log.d("HammerBrawler", "TcpHandler.armBrawlerIntercept: flag SET")
@@ -434,6 +458,7 @@ class TcpHandler(
                     if (dir == LiveMessage.Direction.INBOUND) {
                         sniffClanStart(frame01)
                         sniffEventBattleStart(frame01)
+                        if (duelHijackArmed.get()) sniffDuelHijack(connId, frame01)
                     }
                     pos += 2 + len
                 }
@@ -461,6 +486,7 @@ class TcpHandler(
                             if (dir == LiveMessage.Direction.INBOUND) {
                                 sniffClanStart(frame02)
                                 sniffEventBattleStart(frame02)
+                                if (duelHijackArmed.get()) sniffDuelHijack(connId, frame02)
                             }
                             pos += 5 + compLen
                         }
@@ -490,6 +516,7 @@ class TcpHandler(
                             if (dir == LiveMessage.Direction.INBOUND) {
                                 sniffClanStart(frame03)
                                 sniffEventBattleStart(frame03)
+                                if (duelHijackArmed.get()) sniffDuelHijack(connId, frame03)
                             }
                             pos += 2 + compLen
                         }

@@ -78,6 +78,7 @@ class OverlayService : Service() {
     private var userClanBattleEnabled  = false
     private var userRaidEnabled        = false
     private var userBrawlerEnabled     = false
+    private var duelHijackWaiting      = false
 
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
     private val labelColorActive = Color.parseColor("#FFFF4444")
@@ -213,6 +214,23 @@ class OverlayService : Service() {
                 updateBrawlerPanel()
                 updateUserModeBrawlerLabel()
                 if (isUserMode && userBrawlerEnabled && wasWin) flashLabelGreen(R.id.tv_label_brawler)
+                // Duel Hijack: reset waiting state and show result
+                if (duelHijackWaiting) {
+                    duelHijackWaiting = false
+                    overlayView?.let { v -> updateDuelHijackUi(v) }
+                    if (wasWin) {
+                        overlayView?.findViewById<TextView>(R.id.tv_duel_hijack_status)?.apply {
+                            text = "✓ WIN confirmed!"
+                            setTextColor(Color.parseColor("#FF3FB950"))
+                            visibility = View.VISIBLE
+                        }
+                        if (isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack)
+                        serviceScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                            delay(3_000)
+                            overlayView?.let { v -> updateDuelHijackUi(v) }
+                        }
+                    }
+                }
             }
             is GameEvent.BattleCommand -> {
                 if (last.name in setOf("finish_fight", "event_battle_finish_fight", "clan_finish_fight")) {
@@ -837,6 +855,27 @@ class OverlayService : Service() {
             if (brawlerInterceptArmed) disarmBrawlerIntercept() else armBrawlerIntercept()
         }
 
+        view.findViewById<TextView>(R.id.btn_duel_hijack)?.setOnClickListener {
+            val vpn = TrafficVpnService.instance
+            if (vpn == null) {
+                view.findViewById<TextView>(R.id.tv_duel_hijack_status)?.apply {
+                    text = "FAIL: VPN not running"
+                    setTextColor(Color.parseColor("#FFFF4444"))
+                    visibility = View.VISIBLE
+                }
+                return@setOnClickListener
+            }
+            if (duelHijackWaiting) {
+                vpn.disarmDuelHijack()
+                duelHijackWaiting = false
+                updateDuelHijackUi(view)
+            } else {
+                duelHijackWaiting = true
+                updateDuelHijackUi(view)
+                vpn.runDuelHijack()
+            }
+        }
+
         applyMode(view)
 
         updateEventsPanel()
@@ -938,6 +977,22 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updateDuelHijackUi(view: View) {
+        val btn      = view.findViewById<TextView>(R.id.btn_duel_hijack)      ?: return
+        val statusTv = view.findViewById<TextView>(R.id.tv_duel_hijack_status) ?: return
+        if (duelHijackWaiting) {
+            btn.text = "⏳ CANCEL HIJACK"
+            btn.setBackgroundColor(Color.parseColor("#FFD29922"))
+            statusTv.text = "brawler_start sent — waiting for server reply…"
+            statusTv.setTextColor(Color.parseColor("#FFD29922"))
+            statusTv.visibility = View.VISIBLE
+        } else {
+            btn.text = "⚡  DUEL HIJACK"
+            btn.setBackgroundColor(Color.parseColor("#FFDA3633"))
+            statusTv.visibility = View.GONE
+        }
+    }
+
     override fun onDestroy() {
         AppState.viewModel.gameEvents.removeObserver(eventObserver)
         AppState.viewModel.gameEvents.removeObserver(winObserver)
@@ -948,6 +1003,7 @@ class OverlayService : Service() {
         AppState.viewModel.raidFightActive.removeObserver(raidFightObserver)
         pendingArmJob?.cancel()
         pendingBrawlerArmJob?.cancel()
+        if (duelHijackWaiting) TrafficVpnService.instance?.disarmDuelHijack()
         serviceScope.cancel()
         removeOverlay()
         removeMini()

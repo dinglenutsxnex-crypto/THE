@@ -191,6 +191,33 @@ class TrafficVpnService : VpnService() {
     fun armBrawlerIntercept() { tcpHandler?.armBrawlerIntercept() }
     fun disarmBrawlerIntercept() { tcpHandler?.disarmBrawlerIntercept() }
 
+    /**
+     * Duel Hijack: injects brawler_start then immediately sends a WIN brawler_finish
+     * as soon as the server's brawler_start reply arrives — no game interaction needed.
+     */
+    fun runDuelHijack() {
+        val handler = tcpHandler ?: run {
+            android.util.Log.e("HammerDuel", "runDuelHijack: tcpHandler null — VPN not running")
+            return
+        }
+        val vm = AppState.viewModel
+
+        // Arm BEFORE injecting so there's no race with the server reply
+        handler.armDuelHijack { replyConnId, enemyBlob ->
+            val finishCounter = vm.nextInjectCounter
+            val finishFrame = PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter)
+            val r = handler.injectDirect(replyConnId, finishFrame)
+            android.util.Log.d("HammerDuel", "finish injected counter=$finishCounter result=$r blob=${enemyBlob.size}B")
+        }
+
+        val startCounter = vm.nextInjectCounter
+        val startFrame = PacketInjector.buildBrawlerStart(startCounter)
+        val result = injectDirect(startFrame)
+        android.util.Log.d("HammerDuel", "start injected counter=$startCounter result=$result")
+    }
+
+    fun disarmDuelHijack() { tcpHandler?.disarmDuelHijack() }
+
     fun stopVpn() {
         captureJob?.cancel()
         tcpHandler?.shutdown()

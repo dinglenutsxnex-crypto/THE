@@ -518,6 +518,58 @@
 
             </LinearLayout>
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#FF21262D" />
+
+            <!-- Duel Hijack (one-shot synthetic win injection) -->
+            <LinearLayout
+                android:id="@+id/row_duel_hijack"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="10dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:id="@+id/tv_label_duel_hijack"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Duel Hijack"
+                    android:textColor="#FFE6EDF3"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginBottom="6dp" />
+
+                <TextView
+                    android:id="@+id/btn_duel_hijack"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="⚡  DUEL HIJACK"
+                    android:textColor="#FF0D1117"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:background="#FFDA3633"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/tv_duel_hijack_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#FF8B949E"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
         </LinearLayout>
 
         <!-- ── Status bar (dev mode only) ── -->

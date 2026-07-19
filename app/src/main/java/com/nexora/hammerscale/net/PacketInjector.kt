@@ -44,6 +44,41 @@ object PacketInjector {
     )
     private const val WIN_LEVEL = 28L
 
+    /**
+     * Builds an outbound brawler_start frame (no params field — matches exact game format).
+     * counter: the next outbound message counter to use.
+     */
+    fun buildBrawlerStart(counter: Long): ByteArray {
+        val body = proto {
+            varintField(1, counter)
+            stringField(2, "brawler_start")
+            // no field 3 — server rejects if params present
+        }
+        return if (body.size <= 255) {
+            byteArrayOf(0x01, body.size.toByte()) + body
+        } else {
+            val compressed = rawDeflate(body)
+            byteArrayOf(0x02) + ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(compressed.size).array() + compressed
+        }
+    }
+
+    /**
+     * Builds a brawler_finish WIN frame using the enemy blob captured from the server's
+     * brawler_start reply (params[1] of that reply).
+     */
+    fun buildBrawlerFinishWin(enemyBlob: ByteArray, counter: Long): ByteArray {
+        val params = proto {
+            bytesField(1, enemyBlob)
+            varintField(2, 1L)  // result: 1 = WIN
+            varintField(3, 2L)  // rounds won
+            for (entry in BRAWLER_WIN_ROUND_ENTRIES) bytesField(4, entry)
+            varintField(5, 2L)  // total rounds
+            bytesField(6, BRAWLER_WIN_ITEMS)
+            bytesField(7, BRAWLER_WIN_STATS)
+        }
+        return envelope("brawler_finish", params, counter)
+    }
+
     fun patchFinishFightToWin(data: ByteArray, roundsToWin: Int = 3): ByteArray? {
         if (data.size < 3 || (data[0].toInt() and 0xFF) != 0x01) return null
         val frameLen = data[1].toInt() and 0xFF

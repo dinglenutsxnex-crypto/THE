@@ -393,6 +393,16 @@ object GameProtocolParser {
         return null
     }
 
+    /** Extracts the raw enemy-blob (params[1]) from a server brawler_start frame. */
+    fun extractBrawlerStartEnemyBlob(frame: ByteArray): ByteArray? {
+        val proto = extractPayload(frame) ?: return null
+        val outer = readProtoFields(proto)
+        val cmd = (outer[2] as? ByteArray)?.toString(Charsets.UTF_8) ?: return null
+        if (cmd != "brawler_start") return null
+        val params = outer[3] as? ByteArray ?: return null
+        return readProtoFields(params)[1] as? ByteArray
+    }
+
     private fun rawDeflate(data: ByteArray): ByteArray? = try {
         val inflater = Inflater(true)
         inflater.setInput(data)
