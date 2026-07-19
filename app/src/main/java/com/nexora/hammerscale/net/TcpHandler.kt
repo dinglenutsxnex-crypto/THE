@@ -88,6 +88,27 @@ class TcpHandler(
         android.util.Log.d("HammerDuel", "TcpHandler.disarmDuelHijack: CLEARED")
     }
 
+    // One-shot ping-ack listener: fires the first time any inbound "ping" frame arrives.
+    @Volatile private var pingAckCallback: (() -> Unit)? = null
+
+    fun armPingAck(onAck: () -> Unit) {
+        pingAckCallback = onAck
+    }
+
+    fun disarmPingAck() {
+        pingAckCallback = null
+    }
+
+    private fun sniffPingAck(frame: ByteArray) {
+        // Fast-path: check command name without full parse
+        val cmdName = extractCommandName(frame) ?: return
+        if (cmdName != "ping") return
+        val cb = pingAckCallback ?: return
+        pingAckCallback = null          // consume — one-shot
+        android.util.Log.d("HammerDuel", "sniffPingAck: server ping ack received")
+        cb()
+    }
+
     private fun sniffDuelHijack(connId: String, frame: ByteArray) {
         val blob = GameProtocolParser.extractBrawlerStartEnemyBlob(frame) ?: return
         duelHijackArmed.set(false)
@@ -459,6 +480,7 @@ class TcpHandler(
                         sniffClanStart(frame01)
                         sniffEventBattleStart(frame01)
                         if (duelHijackArmed.get()) sniffDuelHijack(connId, frame01)
+                        if (pingAckCallback != null) sniffPingAck(frame01)
                     }
                     pos += 2 + len
                 }
@@ -487,6 +509,7 @@ class TcpHandler(
                                 sniffClanStart(frame02)
                                 sniffEventBattleStart(frame02)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame02)
+                                if (pingAckCallback != null) sniffPingAck(frame02)
                             }
                             pos += 5 + compLen
                         }
@@ -517,6 +540,7 @@ class TcpHandler(
                                 sniffClanStart(frame03)
                                 sniffEventBattleStart(frame03)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame03)
+                                if (pingAckCallback != null) sniffPingAck(frame03)
                             }
                             pos += 2 + compLen
                         }

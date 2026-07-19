@@ -192,6 +192,9 @@ class TrafficVpnService : VpnService() {
     fun armBrawlerIntercept() { tcpHandler?.armBrawlerIntercept() }
     fun disarmBrawlerIntercept() { tcpHandler?.disarmBrawlerIntercept() }
 
+    fun armPingAck(onAck: () -> Unit) { tcpHandler?.armPingAck(onAck) }
+    fun disarmPingAck() { tcpHandler?.disarmPingAck() }
+
     /**
      * Duel Hijack — fully autonomous brawler farm loop.
      * Brings our app to foreground, sends pings every 3s forever to keep
@@ -216,8 +219,8 @@ class TrafficVpnService : VpnService() {
         }
 
         duelHijackJob = scope.launch {
-            onStatus("⏳ Foregrounded — waiting 2s for game to quiet down…")
-            delay(2000)
+            onStatus("⏳ Foregrounded — waiting 3s for game to quiet down…")
+            delay(3_000)
 
             val netData = vm.lastPingNetDataBytes
             if (netData == null) {
@@ -237,22 +240,53 @@ class TrafficVpnService : VpnService() {
                 } else true
             }
 
-            // ── Ping loop — runs the ENTIRE time, every 3s ──────────────────────
-            // Uses SupervisorJob so a failed ping doesn't kill the parent coroutine.
-            val pingJob = launch(kotlinx.coroutines.SupervisorJob()) {
-                var n = 0
-                while (isActive) {
-                    val c = vm.nextInjectCounter
-                    val r = injectDirect(PacketInjector.buildPing(c, System.currentTimeMillis(), netData))
-                    Log.d("HammerDuel", "ping[$n] counter=$c → $r")
-                    if (n == 0) onStatus("📡 Ping OK (counter=$c) — starting brawler loop")
-                    n++
-                    delay(3_000)
+            // Sends one ping and suspends until the server echoes a ping reply (or times out).
+            // Returns true = ack received, false = socket dead or no reply within 5s.
+            suspend fun sendPingAndAwait(netDataBytes: ByteArray, label: String): Boolean {
+                val c = vm.nextInjectCounter
+                // Arm the one-shot ack listener BEFORE sending so we can't miss a fast reply.
+                val ackDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
+                armPingAck { if (!ackDeferred.isCompleted) ackDeferred.complete(Unit) }
+
+                val r = injectDirect(PacketInjector.buildPing(c, System.currentTimeMillis(), netDataBytes))
+                Log.d("HammerDuel", "ping[$label] counter=$c → $r")
+                if (r.startsWith("FAIL")) {
+                    disarmPingAck()
+                    return false
+                }
+
+                return try {
+                    withTimeout(5_000) { ackDeferred.await() }
+                    Log.d("HammerDuel", "ping[$label] server ack received")
+                    true
+                } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                    disarmPingAck()
+                    Log.w("HammerDuel", "ping[$label] no server ack within 5s")
+                    false
                 }
             }
 
-            // Brief pause so first ping gets acknowledged before we start brawling
-            delay(1_500)
+            // ── Initial ping — wait for server ack before doing anything ─────────
+            if (!sendPingAndAwait(netData, "init")) {
+                onStatus("❌ No ping ack — open SF3, let it connect, then tap again")
+                return@launch
+            }
+            onStatus("📡 Ping ack received — starting brawler loop")
+
+            // ── Background ping loop — keeps the socket alive every 3s ───────────
+            // Uses SupervisorJob so a failed ping doesn't cancel the parent coroutine.
+            // Background pings are fire-and-forget; only the explicit sendPingAndAwait
+            // calls (at start and between rounds) block for an ack.
+            val pingJob = launch(kotlinx.coroutines.SupervisorJob()) {
+                var n = 0
+                while (isActive) {
+                    delay(3_000)
+                    val c = vm.nextInjectCounter
+                    val r = injectDirect(PacketInjector.buildPing(c, System.currentTimeMillis(), netData))
+                    Log.d("HammerDuel", "ping-bg[$n] counter=$c → $r")
+                    n++
+                }
+            }
 
             // ── Brawler loop ─────────────────────────────────────────────────────
             var round = 0
@@ -279,14 +313,19 @@ class TrafficVpnService : VpnService() {
                         withTimeout(15_000) { replyDeferred.await() }
                     } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                         handler.disarmDuelHijack()
-                        Log.w("HammerDuel", "Timeout waiting for brawler_start reply round=$round")
-                        onStatus("⏰ [Round $round] No server reply in 15s — is connection still alive?")
+                        Log.w("HammerDuel", "Timeout waiting for brawler_start reply round=$round — checking connection")
+                        onStatus("⏰ [Round $round] No server reply in 15s — waiting 3s then retrying…")
                         delay(3_000)
+                        // Ping (and wait for ack) to confirm socket is still live before retrying
+                        if (!sendPingAndAwait(netData, "recovery-r$round")) {
+                            onStatus("❌ Connection lost — re-open SF3 → let it connect → tap again")
+                            break
+                        }
                         continue
                     }
 
                     Log.d("HammerDuel", "brawler_start reply  blob=${enemyBlob.size}B")
-                    delay(200) // let server finish writing the reply
+                    delay(300) // let server finish writing the reply frame
 
                     val finishCounter = vm.nextInjectCounter
                     if (!inject(PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter), "brawler_finish r$round")) {
@@ -294,9 +333,18 @@ class TrafficVpnService : VpnService() {
                     }
                     wins++
                     Log.d("HammerDuel", "brawler_finish WIN  round=$round wins=$wins counter=$finishCounter blob=${enemyBlob.size}B")
-                    onStatus("✅ [Round $round | $wins wins] WIN (counter=$finishCounter) — looping…")
+                    onStatus("✅ [Round $round | $wins wins] WIN — waiting 3s before next round…")
 
-                    delay(1_500) // brief breathe before next round
+                    // ── Inter-round cooldown ─────────────────────────────────────
+                    // Server closes the brawler session after each finish; wait 3s then
+                    // send a ping and wait for the server's ack before looping — this
+                    // ensures the socket is confirmed alive and counters are in sync.
+                    delay(3_000)
+                    if (!sendPingAndAwait(netData, "between-r$round")) {
+                        onStatus("❌ Connection lost after round $round — re-open SF3 → tap again")
+                        break
+                    }
+                    Log.d("HammerDuel", "inter-round ping ack OK, starting round ${round + 1}")
                 }
             } finally {
                 pingJob.cancel()
@@ -311,6 +359,7 @@ class TrafficVpnService : VpnService() {
         duelHijackJob?.cancel()
         duelHijackJob = null
         tcpHandler?.disarmDuelHijack()
+        tcpHandler?.disarmPingAck()
     }
 
     @Deprecated("use cancelDuelHijack()")
