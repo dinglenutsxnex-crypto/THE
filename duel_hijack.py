@@ -262,13 +262,28 @@ def make_brawler_start(counter: int) -> bytes:
     outer = build_outer(counter, "brawler_start")
     return small_pkt(outer) if len(outer) <= 255 else large_pkt(outer)
 
+def extract_match_data(server_fight_inner: bytes) -> bytes:
+    """
+    The server's brawler_start inner has:
+      f[1] = match data (opponent info, fight config) — this is what we echo back
+      f[2] = seed/timestamp
+      f[3] = empty (x2)
+    We must echo ONLY the content of f[1], not the full inner.
+    Verified against 4 captured sessions: user f[1] == server inner f[1] content exactly.
+    """
+    for fn, wire, val in decode_proto(server_fight_inner):
+        if fn == 1 and wire == 2:
+            return val
+    return server_fight_inner  # fallback: send full inner (shouldn't happen)
+
 def make_brawler_finish(counter: int, server_inner: bytes) -> bytes:
     """
     Build brawler_finish packet.
-    server_inner = the inner payload from the server's brawler_start response,
-                   echoed back verbatim as field[1] (fight fingerprint).
+    server_inner = the inner payload from the server's brawler_start response.
+    We echo server_inner's f[1] content (match data) as our f[1] — the fingerprint.
     """
-    inner  = enc_bytes(1, server_inner)           # f[1] echo server fight data
+    match_data = extract_match_data(server_inner)
+    inner  = enc_bytes(1, match_data)              # f[1] echo: match data from server's f[1]
     inner += enc_varint_field(2, 1)               # f[2] result = win
     inner += enc_varint_field(3, 2)               # f[3] wonRounds = 2
     inner += enc_bytes(4, bytes.fromhex("08031001"))  # f[4] round results
