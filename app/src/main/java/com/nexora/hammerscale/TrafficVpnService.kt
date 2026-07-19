@@ -33,6 +33,7 @@ class TrafficVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var captureJob: Job? = null
+    private var duelHijackJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var tcpHandler: TcpHandler? = null
@@ -192,31 +193,94 @@ class TrafficVpnService : VpnService() {
     fun disarmBrawlerIntercept() { tcpHandler?.disarmBrawlerIntercept() }
 
     /**
-     * Duel Hijack: injects brawler_start then immediately sends a WIN brawler_finish
-     * as soon as the server's brawler_start reply arrives — no game interaction needed.
+     * Duel Hijack — full autonomous brawler session:
+     * 1. Brings our app to foreground so SF3 stops sending.
+     * 2. Sends pings at the observed interval to keep the server connection alive.
+     * 3. Sends brawler_start and waits for the server's reply.
+     * 4. Sends brawler_finish WIN using the enemy blob from the reply.
+     * All injected frames go through injectDirect → onMessage → appear in dev mode.
      */
-    fun runDuelHijack() {
-        val handler = tcpHandler ?: run {
-            android.util.Log.e("HammerDuel", "runDuelHijack: tcpHandler null — VPN not running")
-            return
-        }
+    fun runDuelHijack(onStatus: (String) -> Unit) {
+        duelHijackJob?.cancel()
+
+        val handler = tcpHandler ?: run { onStatus("❌ VPN not running"); return }
         val vm = AppState.viewModel
 
-        // Arm BEFORE injecting so there's no race with the server reply
-        handler.armDuelHijack { replyConnId, enemyBlob ->
-            val finishCounter = vm.nextInjectCounter
-            val finishFrame = PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter)
-            val r = handler.injectDirect(replyConnId, finishFrame)
-            android.util.Log.d("HammerDuel", "finish injected counter=$finishCounter result=$r blob=${enemyBlob.size}B")
+        // Bring HammerScale to foreground — SF3 goes to background and stops sending
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w("HammerDuel", "Could not bring app to foreground: ${e.message}")
         }
 
-        val startCounter = vm.nextInjectCounter
-        val startFrame = PacketInjector.buildBrawlerStart(startCounter)
-        val result = injectDirect(startFrame)
-        android.util.Log.d("HammerDuel", "start injected counter=$startCounter result=$result")
+        duelHijackJob = scope.launch {
+            onStatus("⏳ App foregrounded — waiting 2s for game to go quiet…")
+            delay(2000)
+
+            val netData = vm.lastPingNetDataBytes
+            if (netData == null) {
+                onStatus("❌ No ping data captured yet — let SF3 connect first, then retry")
+                return@launch
+            }
+
+            val pingInterval = vm.lastPingIntervalMs.coerceIn(2500L, 5000L)
+            Log.d("HammerDuel", "ping interval=${pingInterval}ms netData=${netData.size}B")
+
+            // Send one test ping to confirm connection is alive
+            var counter = vm.nextInjectCounter
+            injectDirect(PacketInjector.buildPing(counter, System.currentTimeMillis(), netData))
+            onStatus("📡 Test ping sent (counter=$counter, interval=${pingInterval}ms) — waiting…")
+            delay(pingInterval)
+
+            // Arm reply intercept BEFORE sending brawler_start (no race window)
+            val replyDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
+            handler.armDuelHijack { _, blob -> replyDeferred.complete(blob) }
+
+            // Send brawler_start
+            counter = vm.nextInjectCounter
+            injectDirect(PacketInjector.buildBrawlerStart(counter))
+            onStatus("🎯 brawler_start sent (counter=$counter) — keeping alive with pings…")
+
+            // Keep pinging while we wait for the server's brawler_start reply
+            val pingJob = launch {
+                while (isActive) {
+                    delay(pingInterval)
+                    val c = vm.nextInjectCounter
+                    injectDirect(PacketInjector.buildPing(c, System.currentTimeMillis(), netData))
+                    Log.d("HammerDuel", "keepalive ping counter=$c")
+                }
+            }
+
+            val enemyBlob = try {
+                withTimeout(15_000) { replyDeferred.await() }
+            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                pingJob.cancel()
+                handler.disarmDuelHijack()
+                onStatus("⏰ Timeout — server did not reply to brawler_start (15s)")
+                return@launch
+            }
+
+            pingJob.cancel()
+            onStatus("✅ Got server reply (enemy blob ${enemyBlob.size}B) — sending brawler_finish WIN…")
+            delay(200) // brief settle
+
+            counter = vm.nextInjectCounter
+            injectDirect(PacketInjector.buildBrawlerFinishWin(enemyBlob, counter))
+            onStatus("✅ brawler_finish WIN sent (counter=$counter) — watch for server reward!")
+        }
     }
 
-    fun disarmDuelHijack() { tcpHandler?.disarmDuelHijack() }
+    fun cancelDuelHijack() {
+        duelHijackJob?.cancel()
+        duelHijackJob = null
+        tcpHandler?.disarmDuelHijack()
+    }
+
+    @Deprecated("use cancelDuelHijack()")
+    fun disarmDuelHijack() = cancelDuelHijack()
 
     fun stopVpn() {
         captureJob?.cancel()

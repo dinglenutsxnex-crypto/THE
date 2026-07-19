@@ -403,6 +403,20 @@ object GameProtocolParser {
         return readProtoFields(params)[1] as? ByteArray
     }
 
+    /**
+     * Extracts params[2] (the net_data blob) from an outbound ping frame.
+     * Returns null if the frame is not a ping or has no params[2].
+     * The returned bytes can be re-used verbatim in synthetic pings.
+     */
+    fun extractPingNetData(frame: ByteArray): ByteArray? {
+        val payload = extractPayload(frame) ?: return null
+        val outer = readProtoFields(payload)
+        val cmd = (outer[2] as? ByteArray)?.toString(Charsets.UTF_8) ?: return null
+        if (cmd != "ping") return null
+        val params = outer[3] as? ByteArray ?: return null
+        return readProtoFields(params)[2] as? ByteArray
+    }
+
     private fun rawDeflate(data: ByteArray): ByteArray? = try {
         val inflater = Inflater(true)
         inflater.setInput(data)

@@ -63,6 +63,20 @@ object PacketInjector {
     }
 
     /**
+     * Builds an outbound ping frame.
+     * netDataBytes = params[2] captured verbatim from a real outbound ping
+     *                (encodes the net_data string + device fingerprint).
+     */
+    fun buildPing(counter: Long, timestampMs: Long, netDataBytes: ByteArray): ByteArray {
+        val tsBlob = proto { varintField(1, timestampMs) }
+        val params = proto {
+            bytesField(1, tsBlob)
+            bytesField(2, netDataBytes)
+        }
+        return envelope("ping", params, counter)
+    }
+
+    /**
      * Builds a brawler_finish WIN frame using the enemy blob captured from the server's
      * brawler_start reply (params[1] of that reply).
      */
