@@ -318,7 +318,16 @@ class TrafficVpnService : VpnService() {
             }
 
             // ── Initial ping ─────────────────────────────────────────────────────
+            // Arm the hijack callback NOW, before the initial ping, so that any
+            // server-pushed brawler_start that arrives during the ping handshake
+            // is already captured rather than silently discarded.
+            var nextBlobDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
+            handler.armDuelHijack { _, blob ->
+                if (!nextBlobDeferred.isCompleted) nextBlobDeferred.complete(blob)
+            }
+
             if (!sendPingAndAwait(netData, "init")) {
+                handler.disarmDuelHijack()
                 setHijackBlocking(false)
                 onStatus("❌ No ping ack — SF3 not connected yet, try again")
                 return@launch
@@ -349,20 +358,24 @@ class TrafficVpnService : VpnService() {
                     while (isActive) {
                         round++
 
-                        val replyDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
-                        handler.armDuelHijack { _, blob ->
-                            if (!replyDeferred.isCompleted) replyDeferred.complete(blob)
+                        // If the server already pushed a brawler_start during the previous
+                        // cooldown (we arm early, before the delay — see below), we have
+                        // the blob in hand and don't need to send brawler_start at all.
+                        val blobPreCaptured = nextBlobDeferred.isCompleted
+                        if (blobPreCaptured) {
+                            Log.d("HammerDuel", "r$round: server pre-pushed blob, skipping brawler_start send")
+                            onStatus("🎯 [Round $round | $wins wins] using server-pushed blob…")
+                        } else {
+                            val startCounter = vm.nextInjectCounter
+                            if (!inject(PacketInjector.buildBrawlerStart(startCounter), "brawler_start r$round")) {
+                                break@outerLoop
+                            }
+                            Log.d("HammerDuel", "brawler_start round=$round counter=$startCounter")
+                            onStatus("🎯 [Round $round | $wins wins] waiting for server reply…")
                         }
-
-                        val startCounter = vm.nextInjectCounter
-                        if (!inject(PacketInjector.buildBrawlerStart(startCounter), "brawler_start r$round")) {
-                            break@outerLoop
-                        }
-                        Log.d("HammerDuel", "brawler_start round=$round counter=$startCounter")
-                        onStatus("🎯 [Round $round | $wins wins] waiting for server reply…")
 
                         val enemyBlob = try {
-                            withTimeout(15_000) { replyDeferred.await() }
+                            withTimeout(15_000) { nextBlobDeferred.await() }
                         } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                             handler.disarmDuelHijack()
                             Log.w("HammerDuel", "brawler_start timeout round=$round — checking connection")
@@ -381,6 +394,11 @@ class TrafficVpnService : VpnService() {
                             netData = fresh
 
                             // Confirm new session with a ping before restarting the outer loop.
+                            // Re-arm before the ping so a server push during the ping is caught.
+                            nextBlobDeferred = kotlinx.coroutines.CompletableDeferred()
+                            handler.armDuelHijack { _, blob ->
+                                if (!nextBlobDeferred.isCompleted) nextBlobDeferred.complete(blob)
+                            }
                             if (!sendPingAndAwait(netData, "post-reconnect")) {
                                 onStatus("❌ No ping ack after reconnect — tap again")
                                 break@outerLoop
@@ -398,6 +416,16 @@ class TrafficVpnService : VpnService() {
                         wins++
                         Log.d("HammerDuel", "WIN round=$round wins=$wins counter=$finishCounter")
                         onStatus("✅ [Round $round | $wins wins] WIN — cooldown 3s…")
+
+                        // ── Re-arm BEFORE the cooldown so the server's proactive push
+                        // (which can arrive within ms of the win ack) is captured while
+                        // we sleep.  If it arrives during the 3-second delay we skip the
+                        // next brawler_start send entirely.
+                        nextBlobDeferred = kotlinx.coroutines.CompletableDeferred()
+                        handler.armDuelHijack { _, blob ->
+                            if (!nextBlobDeferred.isCompleted) nextBlobDeferred.complete(blob)
+                        }
+                        Log.d("HammerDuel", "armed for r${round + 1} pre-cooldown")
 
                         delay(3_000)
                         if (!sendPingAndAwait(netData, "between-r$round")) {
