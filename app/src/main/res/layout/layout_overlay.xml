@@ -7,14 +7,12 @@
     android:clipToOutline="true"
     android:elevation="12dp">
 
-    <!-- ── Main content column ── -->
     <LinearLayout
         android:id="@+id/overlay_root"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- ── Header (drag handle) ── -->
         <LinearLayout
             android:id="@+id/overlay_header"
             android:layout_width="match_parent"
@@ -25,7 +23,6 @@
             android:paddingStart="20dp"
             android:paddingEnd="4dp">
 
-            <!-- Title wrapper to keep brackets tight -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -64,7 +61,6 @@
 
             </LinearLayout>
 
-            <!-- Spacer to push buttons to the right -->
             <View
                 android:layout_width="0dp"
                 android:layout_height="0dp"
@@ -109,7 +105,6 @@
 
         </LinearLayout>
 
-        <!-- ── Tab row (dev mode only) ── -->
         <LinearLayout
             android:id="@+id/layout_tab_row"
             android:layout_width="match_parent"
@@ -152,7 +147,6 @@
 
         </LinearLayout>
 
-        <!-- ── Logs tab: event list (dev mode only) ── -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_events"
             android:layout_width="match_parent"
@@ -160,7 +154,6 @@
             android:scrollbars="none"
             android:overScrollMode="never" />
 
-        <!-- ── Events tab: game state panel (dev mode only) ── -->
         <LinearLayout
             android:id="@+id/panel_events"
             android:layout_width="match_parent"
@@ -194,7 +187,6 @@
                 android:layout_marginBottom="20dp"
                 android:visibility="gone" />
 
-            <!-- ── Rounds row ── -->
             <LinearLayout
                 android:id="@+id/row_rounds"
                 android:layout_width="match_parent"
@@ -277,14 +269,11 @@
                 android:layout_marginTop="10dp"
                 android:visibility="gone" />
 
-            <!-- ── Divider ── -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#FF30363D"
                 android:layout_marginTop="16dp" />
-
-            <!-- ── Raid section ── -->
             <TextView
                 android:id="@+id/tv_raid_status"
                 android:layout_width="match_parent"
@@ -325,14 +314,11 @@
                 android:layout_marginTop="8dp"
                 android:visibility="gone" />
 
-            <!-- ── Divider ── -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#FF30363D"
                 android:layout_marginTop="16dp" />
-
-            <!-- ── Brawler section ── -->
             <TextView
                 android:id="@+id/tv_brawler_status"
                 android:layout_width="match_parent"
@@ -375,7 +361,6 @@
 
         </LinearLayout>
 
-        <!-- ── User Mode Panel (user mode only, gone by default) ── -->
         <LinearLayout
             android:id="@+id/panel_user_mode"
             android:layout_width="match_parent"
@@ -387,7 +372,6 @@
             android:paddingBottom="8dp"
             android:visibility="gone">
 
-            <!-- Event Battle Auto Win -->
             <LinearLayout
                 android:id="@+id/row_event_battle"
                 android:layout_width="match_parent"
@@ -421,7 +405,6 @@
                 android:layout_height="1dp"
                 android:background="#FF21262D" />
 
-            <!-- Clan Battle Auto Win -->
             <LinearLayout
                 android:id="@+id/row_clan_battle"
                 android:layout_width="match_parent"
@@ -455,7 +438,6 @@
                 android:layout_height="1dp"
                 android:background="#FF21262D" />
 
-            <!-- Brawler Auto Win -->
             <LinearLayout
                 android:id="@+id/row_brawler"
                 android:layout_width="match_parent"
@@ -489,7 +471,6 @@
                 android:layout_height="1dp"
                 android:background="#FF21262D" />
 
-            <!-- Raid Max Dmg -->
             <LinearLayout
                 android:id="@+id/row_raid"
                 android:layout_width="match_parent"
@@ -523,7 +504,6 @@
                 android:layout_height="1dp"
                 android:background="#FF21262D" />
 
-            <!-- Duel Hijack (one-shot synthetic win injection) -->
             <LinearLayout
                 android:id="@+id/row_duel_hijack"
                 android:layout_width="match_parent"
@@ -546,7 +526,7 @@
                     android:id="@+id/btn_duel_hijack"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
-                    android:text="⚡  DUEL HIJACK"
+                    android:text="DUEL HIJACK"
                     android:textColor="#FF0D1117"
                     android:textSize="13sp"
                     android:textStyle="bold"
@@ -572,7 +552,6 @@
 
         </LinearLayout>
 
-        <!-- ── Status bar (dev mode only) ── -->
         <TextView
             android:id="@+id/tv_status_bar"
             android:layout_width="match_parent"
@@ -587,7 +566,6 @@
 
     </LinearLayout>
 
-    <!-- ── Dropdown menu panel — floats over content below header ── -->
     <LinearLayout
         android:id="@+id/panel_menu"
         android:layout_width="match_parent"
@@ -599,7 +577,6 @@
         android:elevation="20dp"
         android:visibility="gone">
 
-        <!-- Dev-mode-only items -->
         <LinearLayout
             android:id="@+id/panel_menu_dev_items"
             android:layout_width="match_parent"
@@ -644,7 +621,6 @@
 
         </LinearLayout>
 
-        <!-- Mode toggle — always visible in menu -->
         <TextView
             android:id="@+id/menu_mode_toggle"
             android:layout_width="match_parent"

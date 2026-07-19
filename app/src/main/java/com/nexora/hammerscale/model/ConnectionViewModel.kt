@@ -31,20 +31,14 @@ class ConnectionViewModel : ViewModel() {
     val battleSocketId: LiveData<String?> = _battleSocketId
 
     private val _outboundCounter = AtomicLong(0L)
-
-    // Separate atomic for injected frames — always stays above real-traffic counter.
-    // Atomically claimed on each read so concurrent callers can never receive the same value.
     private val _injectCounter = AtomicLong(0L)
 
     val nextInjectCounter: Long get() {
-        // Sync up to the highest counter the server has actually seen from the game,
-        // then claim the next slot for our injected frame.
         val observed = _outboundCounter.get()
         _injectCounter.updateAndGet { maxOf(it, observed) }
         return _injectCounter.incrementAndGet()
     }
 
-    // net_data blob captured from real outbound pings — used by Duel Hijack to build valid pings
     @Volatile var lastPingNetDataBytes: ByteArray? = null
 
     private val _gameEvents = MutableLiveData<List<GameEvent>>(emptyList())
@@ -135,7 +129,7 @@ class ConnectionViewModel : ViewModel() {
             viewModelScope.launch(Dispatchers.Default) {
                 synchronized(conn.messages) {
                     conn.messages.add(message)
-                    if (conn.messages.size > 2000) conn.messages.removeAt(0)
+                    if (conn.messages.size > 3000) conn.messages.subList(0, 1000).clear()
                 }
                 if (message.direction == LiveMessage.Direction.INBOUND) {
                     conn.bytesIn += message.data.size
@@ -160,7 +154,7 @@ class ConnectionViewModel : ViewModel() {
 
                     synchronized(gameEventList) {
                         gameEventList.add(event)
-                        if (gameEventList.size > 2000) gameEventList.removeAt(0)
+                        if (gameEventList.size > 3000) gameEventList.subList(0, 1000).clear()
                     }
                     _gameEvents.postValue(gameEventList.toList())
 

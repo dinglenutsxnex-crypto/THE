@@ -95,7 +95,12 @@ class OverlayService : Service() {
         if (added.isNotEmpty()) {
             val prevSize = events.size
             events.addAll(added)
-            adapter.notifyItemRangeInserted(prevSize, added.size)
+            if (events.size > 3000) {
+                events.subList(0, 1000).clear()
+                adapter.notifyDataSetChanged()
+            } else {
+                adapter.notifyItemRangeInserted(prevSize, added.size)
+            }
 
             val rv = overlayView?.findViewById<RecyclerView>(R.id.rv_events)
             if (rv != null && isAtBottom(rv)) {
@@ -966,10 +971,10 @@ class OverlayService : Service() {
         val btn = view.findViewById<TextView>(R.id.btn_duel_hijack) ?: return
         val statusTv = view.findViewById<TextView>(R.id.tv_duel_hijack_status) ?: return
         if (duelHijackWaiting) {
-            btn.text = "⏹  CANCEL HIJACK"
+            btn.text = "CANCEL HIJACK"
             btn.setBackgroundColor(Color.parseColor("#FFD29922"))
         } else {
-            btn.text = "⚡  DUEL HIJACK"
+            btn.text = "DUEL HIJACK"
             btn.setBackgroundColor(Color.parseColor("#FFDA3633"))
             statusTv.visibility = View.GONE
         }

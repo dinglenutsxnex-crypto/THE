@@ -206,16 +206,6 @@ class TrafficVpnService : VpnService() {
     fun armLoginReady(onReady: () -> Unit) { tcpHandler?.armLoginReady(onReady) }
     fun disarmLoginReady() { tcpHandler?.disarmLoginReady() }
 
-    /**
-     * Duel Hijack — passive brawler farm loop.
-     *
-     * SF3 keeps running normally and handles all pings and connection management.
-     * We just sit alongside it: read the game's outbound counter, inject brawler_start
-     * right after, wait for the server's brawler_start reply, then inject brawler_finish
-     * win. No blocking, no pings, no reconnect logic — the game does all of that.
-     *
-     * Loops until cancelDuelHijack() is called.
-     */
     fun runDuelHijack(onStatus: (String) -> Unit) {
         duelHijackJob?.cancel()
 
@@ -238,8 +228,6 @@ class TrafficVpnService : VpnService() {
             while (isActive) {
                 round++
 
-                // Use the counter one slot above whatever the game last sent.
-                // nextInjectCounter = max(_injectCounter, _outboundCounter) + 1
                 val startCounter = vm.nextInjectCounter
                 val startResult  = injectDirect(PacketInjector.buildBrawlerStart(startCounter))
                 Log.d("HammerDuel", "brawler_start r$round counter=$startCounter → $startResult")
@@ -250,7 +238,6 @@ class TrafficVpnService : VpnService() {
                 }
                 onStatus("🎯 [Round $round | $wins wins] waiting for server…")
 
-                // Wait for server's brawler_start response containing the enemy blob.
                 val enemyBlob = try {
                     withTimeout(15_000) { blobDeferred.await() }
                 } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
@@ -274,7 +261,6 @@ class TrafficVpnService : VpnService() {
                 wins++
                 onStatus("✅ [Round $round | $wins wins] WIN")
 
-                // Re-arm before the next round so a proactive server push is never missed.
                 blobDeferred = kotlinx.coroutines.CompletableDeferred()
                 handler.armDuelHijack { _, blob ->
                     if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
