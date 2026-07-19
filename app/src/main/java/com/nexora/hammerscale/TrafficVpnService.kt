@@ -230,12 +230,13 @@ class TrafficVpnService : VpnService() {
             onStatus("⏳ Blocking SF3 traffic — waiting 3s for socket to quiet down…")
             delay(3_000)
 
-            var netData = vm.lastPingNetDataBytes
-            if (netData == null) {
+            val initialNetData = vm.lastPingNetDataBytes
+            if (initialNetData == null) {
                 setHijackBlocking(false)
                 onStatus("❌ No ping data — open SF3, let it connect, then tap again")
                 return@launch
             }
+            var netData: ByteArray = initialNetData
             Log.d("HammerDuel", "Hijack started. netData=${netData.size}B")
 
             // ── Helpers ──────────────────────────────────────────────────────────
