@@ -36,10 +36,8 @@ class ConnectionViewModel : ViewModel() {
         return if (c > 0L) c + 1L else 1L
     }
 
-    // Ping metadata captured from real traffic — used by Duel Hijack to keep connection alive
+    // net_data blob captured from real outbound pings — used by Duel Hijack to build valid pings
     @Volatile var lastPingNetDataBytes: ByteArray? = null
-    @Volatile var lastPingIntervalMs: Long = 3500L
-    @Volatile private var lastPingObservedAt: Long = 0L
 
     private val _gameEvents = MutableLiveData<List<GameEvent>>(emptyList())
     val gameEvents: LiveData<List<GameEvent>> = _gameEvents
@@ -121,17 +119,9 @@ class ConnectionViewModel : ViewModel() {
                 if (counter != null) {
                     _outboundCounter.updateAndGet { maxOf(it, counter) }
                 }
-                // Track ping timing + net_data for Duel Hijack synthetic pings
+                // Capture net_data blob from pings for Duel Hijack synthetic keepalives
                 val pingNetData = GameProtocolParser.extractPingNetData(message.data)
-                if (pingNetData != null) {
-                    val now = System.currentTimeMillis()
-                    val delta = now - lastPingObservedAt
-                    if (lastPingObservedAt > 0L && delta in 1500L..8000L) {
-                        lastPingIntervalMs = delta
-                    }
-                    lastPingObservedAt = now
-                    lastPingNetDataBytes = pingNetData
-                }
+                if (pingNetData != null) lastPingNetDataBytes = pingNetData
             }
 
             viewModelScope.launch(Dispatchers.Default) {
@@ -216,7 +206,6 @@ class ConnectionViewModel : ViewModel() {
         _battleSocketId.postValue(null)
         _outboundCounter.set(0L)
         lastPingNetDataBytes = null
-        lastPingObservedAt = 0L
         synchronized(gameEventList) { gameEventList.clear() }
         _gameEvents.postValue(emptyList())
         _currentBattle.postValue(null)
