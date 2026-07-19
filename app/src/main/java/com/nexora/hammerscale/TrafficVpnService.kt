@@ -227,16 +227,26 @@ class TrafficVpnService : VpnService() {
 
             Log.d("HammerDuel", "Starting hijack loop. netData=${netData.size}B")
 
+            // Returns true on success, false + onStatus if connection is dead.
+            fun inject(data: ByteArray, tag: String): Boolean {
+                val r = injectDirect(data)
+                Log.d("HammerDuel", "$tag → $r")
+                return if (r.startsWith("FAIL")) {
+                    onStatus("❌ Connection dead after $tag ($r)\nRe-open SF3 → let it connect → tap again")
+                    false
+                } else true
+            }
+
             // ── Ping loop — runs the ENTIRE time, every 3s ──────────────────────
-            val pingJob = launch {
-                var firstPing = true
+            // Uses SupervisorJob so a failed ping doesn't kill the parent coroutine.
+            val pingJob = launch(kotlinx.coroutines.SupervisorJob()) {
+                var n = 0
                 while (isActive) {
                     val c = vm.nextInjectCounter
-                    val frame = PacketInjector.buildPing(c, System.currentTimeMillis(), netData)
-                    injectDirect(frame)
-                    Log.d("HammerDuel", "ping  counter=$c")
-                    onStatus(if (firstPing) "📡 Ping sent (counter=$c) — connected" else "📡 Keepalive ping (counter=$c)")
-                    firstPing = false
+                    val r = injectDirect(PacketInjector.buildPing(c, System.currentTimeMillis(), netData))
+                    Log.d("HammerDuel", "ping[$n] counter=$c → $r")
+                    if (n == 0) onStatus("📡 Ping OK (counter=$c) — starting brawler loop")
+                    n++
                     delay(3_000)
                 }
             }
@@ -246,6 +256,7 @@ class TrafficVpnService : VpnService() {
 
             // ── Brawler loop ─────────────────────────────────────────────────────
             var round = 0
+            var wins  = 0
             try {
                 while (isActive) {
                     round++
@@ -257,9 +268,11 @@ class TrafficVpnService : VpnService() {
                     }
 
                     val startCounter = vm.nextInjectCounter
-                    injectDirect(PacketInjector.buildBrawlerStart(startCounter))
+                    if (!inject(PacketInjector.buildBrawlerStart(startCounter), "brawler_start r$round")) {
+                        break  // dead socket — error already posted by inject()
+                    }
                     Log.d("HammerDuel", "brawler_start  round=$round counter=$startCounter")
-                    onStatus("🎯 [Round $round] brawler_start sent (counter=$startCounter)…")
+                    onStatus("🎯 [Round $round | $wins wins] brawler_start (counter=$startCounter)…")
 
                     // Wait for server's brawler_start reply
                     val enemyBlob = try {
@@ -267,7 +280,7 @@ class TrafficVpnService : VpnService() {
                     } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                         handler.disarmDuelHijack()
                         Log.w("HammerDuel", "Timeout waiting for brawler_start reply round=$round")
-                        onStatus("⏰ [Round $round] Server timeout — retrying in 3s…")
+                        onStatus("⏰ [Round $round] No server reply in 15s — is connection still alive?")
                         delay(3_000)
                         continue
                     }
@@ -276,16 +289,20 @@ class TrafficVpnService : VpnService() {
                     delay(200) // let server finish writing the reply
 
                     val finishCounter = vm.nextInjectCounter
-                    injectDirect(PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter))
-                    Log.d("HammerDuel", "brawler_finish WIN  round=$round counter=$finishCounter blob=${enemyBlob.size}B")
-                    onStatus("✅ [Round $round] WIN sent (counter=$finishCounter, blob=${enemyBlob.size}B) — looping…")
+                    if (!inject(PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter), "brawler_finish r$round")) {
+                        break
+                    }
+                    wins++
+                    Log.d("HammerDuel", "brawler_finish WIN  round=$round wins=$wins counter=$finishCounter blob=${enemyBlob.size}B")
+                    onStatus("✅ [Round $round | $wins wins] WIN (counter=$finishCounter) — looping…")
 
                     delay(1_500) // brief breathe before next round
                 }
             } finally {
                 pingJob.cancel()
                 handler.disarmDuelHijack()
-                Log.d("HammerDuel", "Hijack loop stopped after $round rounds")
+                onStatus("🛑 Loop ended — $wins wins in $round rounds")
+                Log.d("HammerDuel", "Hijack loop stopped — wins=$wins rounds=$round")
             }
         }
     }
