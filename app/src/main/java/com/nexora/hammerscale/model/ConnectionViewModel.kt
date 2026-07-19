@@ -33,12 +33,12 @@ class ConnectionViewModel : ViewModel() {
     private val _outboundCounter = AtomicLong(0L)
 
     // Separate atomic for injected frames — always stays above real-traffic counter.
-    // Atomically claimed on each read so concurrent callers (ping loop + brawler loop)
-    // can never receive the same value.
+    // Atomically claimed on each read so concurrent callers can never receive the same value.
     private val _injectCounter = AtomicLong(0L)
 
     val nextInjectCounter: Long get() {
-        // Catch up to highest observed real-traffic counter first, then claim next slot.
+        // Sync up to the highest counter the server has actually seen from the game,
+        // then claim the next slot for our injected frame.
         val observed = _outboundCounter.get()
         _injectCounter.updateAndGet { maxOf(it, observed) }
         return _injectCounter.incrementAndGet()
