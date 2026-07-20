@@ -210,40 +210,38 @@ class TrafficVpnService : VpnService() {
     fun runDuelHijack(onStatus: (String) -> Unit) {
         duelHijackJob?.cancel()
 
-        val handler = tcpHandler ?: run { onStatus("❌ VPN not running"); return }
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
         val vm = AppState.viewModel
 
         duelHijackJob = scope.launch {
             var round = 0
             var wins  = 0
 
-            // Arm the sniff callback before the first brawler_start so we never miss
-            // a server reply that arrives before the await() call is reached.
             var blobDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
             handler.armDuelHijack { _, blob ->
                 if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
             }
 
-            onStatus("📡 Hijack armed — starting brawler loop")
+            onStatus("Hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
 
                 val startCounter = vm.nextInjectCounter
                 val startResult  = injectDirect(PacketInjector.buildBrawlerStart(startCounter))
-                Log.d("HammerDuel", "brawler_start r$round counter=$startCounter → $startResult")
+                Log.d("HammerDuel", "brawler_start r$round counter=$startCounter -> $startResult")
 
                 if (startResult.startsWith("FAIL")) {
-                    onStatus("❌ Inject failed: $startResult")
+                    onStatus("ERROR: Inject failed: $startResult")
                     break
                 }
-                onStatus("🎯 [Round $round | $wins wins] waiting for server…")
+                onStatus("[Round $round | $wins wins] waiting for server...")
 
                 val enemyBlob = try {
                     withTimeout(15_000) { blobDeferred.await() }
                 } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                     handler.disarmDuelHijack()
-                    onStatus("⏰ No reply in 15s — quota hit or disconnected. Tap again when ready.")
+                    onStatus("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
                     break
                 }
 
@@ -252,15 +250,15 @@ class TrafficVpnService : VpnService() {
 
                 val finishCounter = vm.nextInjectCounter
                 val finishResult  = injectDirect(PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter))
-                Log.d("HammerDuel", "brawler_finish r$round counter=$finishCounter → $finishResult")
+                Log.d("HammerDuel", "brawler_finish r$round counter=$finishCounter -> $finishResult")
 
                 if (finishResult.startsWith("FAIL")) {
-                    onStatus("❌ Inject failed: $finishResult")
+                    onStatus("ERROR: Inject failed: $finishResult")
                     break
                 }
 
                 wins++
-                onStatus("✅ [Round $round | $wins wins] WIN")
+                onStatus("[Round $round | $wins wins] WIN")
 
                 blobDeferred = kotlinx.coroutines.CompletableDeferred()
                 handler.armDuelHijack { _, blob ->
@@ -271,7 +269,7 @@ class TrafficVpnService : VpnService() {
             }
 
             handler.disarmDuelHijack()
-            onStatus("🛑 Stopped — $wins wins in $round rounds")
+            onStatus("STOPPED: $wins wins in $round rounds")
             Log.d("HammerDuel", "Hijack stopped — wins=$wins rounds=$round")
         }
     }
@@ -285,7 +283,7 @@ class TrafficVpnService : VpnService() {
     fun runDuelHijackLoss(onStatus: (String) -> Unit) {
         duelHijackLossJob?.cancel()
 
-        val handler = tcpHandler ?: run { onStatus("❌ VPN not running"); return }
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
         val vm = AppState.viewModel
 
         duelHijackLossJob = scope.launch {
@@ -297,7 +295,7 @@ class TrafficVpnService : VpnService() {
                 if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
             }
 
-            onStatus("📡 Loss hijack armed — starting brawler loop")
+            onStatus("Loss hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
@@ -307,16 +305,16 @@ class TrafficVpnService : VpnService() {
                 Log.d("HammerDuel", "loss brawler_start r$round counter=$startCounter → $startResult")
 
                 if (startResult.startsWith("FAIL")) {
-                    onStatus("❌ Inject failed: $startResult")
+                    onStatus("ERROR: Inject failed: $startResult")
                     break
                 }
-                onStatus("🎯 [Round $round | $losses losses] waiting for server…")
+                onStatus("[Round $round | $losses losses] waiting for server...")
 
                 val enemyBlob = try {
                     withTimeout(15_000) { blobDeferred.await() }
                 } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                     handler.disarmDuelHijack()
-                    onStatus("⏰ No reply in 15s — quota hit or disconnected. Tap again when ready.")
+                    onStatus("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
                     break
                 }
 
@@ -328,12 +326,12 @@ class TrafficVpnService : VpnService() {
                 Log.d("HammerDuel", "loss brawler_finish r$round counter=$finishCounter → $finishResult")
 
                 if (finishResult.startsWith("FAIL")) {
-                    onStatus("❌ Inject failed: $finishResult")
+                    onStatus("ERROR: Inject failed: $finishResult")
                     break
                 }
 
                 losses++
-                onStatus("✅ [Round $round | $losses losses] LOSS")
+                onStatus("[Round $round | $losses losses] LOSS")
 
                 blobDeferred = kotlinx.coroutines.CompletableDeferred()
                 handler.armDuelHijack { _, blob ->
@@ -344,7 +342,7 @@ class TrafficVpnService : VpnService() {
             }
 
             handler.disarmDuelHijack()
-            onStatus("🛑 Stopped — $losses losses in $round rounds")
+            onStatus("STOPPED: $losses losses in $round rounds")
             Log.d("HammerDuel", "Loss hijack stopped — losses=$losses rounds=$round")
         }
     }

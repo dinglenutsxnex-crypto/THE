@@ -851,7 +851,7 @@ class OverlayService : Service() {
         view.findViewById<Switch>(R.id.sw_duel_hijack)?.setOnCheckedChangeListener { _, isChecked ->
             val vpn = TrafficVpnService.instance
             if (vpn == null) {
-                setDuelHijackStatus(view, "❌ VPN not running", terminal = true)
+                setDuelHijackStatus(view, "ERROR: VPN not running", terminal = true)
                 return@setOnCheckedChangeListener
             }
             if (isChecked) {
@@ -859,7 +859,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijack { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
+                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
                         overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                     }
                 }
@@ -873,7 +873,7 @@ class OverlayService : Service() {
         view.findViewById<Switch>(R.id.sw_duel_hijack_loss)?.setOnCheckedChangeListener { _, isChecked ->
             val vpn = TrafficVpnService.instance
             if (vpn == null) {
-                setDuelHijackLossStatus(view, "❌ VPN not running", terminal = true)
+                setDuelHijackLossStatus(view, "ERROR: VPN not running", terminal = true)
                 return@setOnCheckedChangeListener
             }
             if (isChecked) {
@@ -881,7 +881,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijackLoss { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
+                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
                         overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                     }
                 }
@@ -1002,7 +1002,7 @@ class OverlayService : Service() {
             sw.setOnCheckedChangeListener { _, isChecked ->
                 val vpn = TrafficVpnService.instance
                 if (vpn == null) {
-                    setDuelHijackStatus(view, "❌ VPN not running", terminal = true)
+                    setDuelHijackStatus(view, "ERROR: VPN not running", terminal = true)
                     return@setOnCheckedChangeListener
                 }
                 if (isChecked) {
@@ -1010,7 +1010,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijack { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
+                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
                             overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                         }
                     }
@@ -1027,16 +1027,16 @@ class OverlayService : Service() {
         view.findViewById<TextView>(R.id.tv_duel_hijack_status)?.apply {
             text = status
             setTextColor(when {
-                status.startsWith("❌") || status.startsWith("⏰") -> Color.parseColor("#FFFF4444")
-                status.startsWith("✅")                           -> Color.parseColor("#FF3FB950")
-                else                                              -> Color.parseColor("#FFD29922")
+                status.startsWith("ERROR") || status.startsWith("TIMEOUT") -> Color.parseColor("#FFFF4444")
+                status.contains("WIN")                                      -> Color.parseColor("#FF3FB950")
+                else                                                        -> Color.parseColor("#FFD29922")
             })
             visibility = View.VISIBLE
         }
         if (terminal) {
             duelHijackWaiting = false
             updateDuelHijackUi(view)
-            if (status.startsWith("✅") && isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack)
+            if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack)
         }
     }
 
@@ -1049,7 +1049,7 @@ class OverlayService : Service() {
             sw.setOnCheckedChangeListener { _, isChecked ->
                 val vpn = TrafficVpnService.instance
                 if (vpn == null) {
-                    setDuelHijackLossStatus(view, "❌ VPN not running", terminal = true)
+                    setDuelHijackLossStatus(view, "ERROR: VPN not running", terminal = true)
                     return@setOnCheckedChangeListener
                 }
                 if (isChecked) {
@@ -1057,7 +1057,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijackLoss { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
+                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
                             overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                         }
                     }
@@ -1074,16 +1074,16 @@ class OverlayService : Service() {
         view.findViewById<TextView>(R.id.tv_duel_hijack_loss_status)?.apply {
             text = status
             setTextColor(when {
-                status.startsWith("❌") || status.startsWith("⏰") -> Color.parseColor("#FFFF4444")
-                status.startsWith("✅")                           -> Color.parseColor("#FF3FB950")
-                else                                              -> Color.parseColor("#FFD29922")
+                status.startsWith("ERROR") || status.startsWith("TIMEOUT") -> Color.parseColor("#FFFF4444")
+                status.contains("LOSS")                                     -> Color.parseColor("#FF3FB950")
+                else                                                        -> Color.parseColor("#FFD29922")
             })
             visibility = View.VISIBLE
         }
         if (terminal) {
             duelHijackLossWaiting = false
             updateDuelHijackLossUi(view)
-            if (status.startsWith("✅") && isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack_loss)
+            if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack_loss)
         }
     }
 
