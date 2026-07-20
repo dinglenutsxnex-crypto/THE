@@ -79,6 +79,7 @@ class OverlayService : Service() {
     private var userRaidEnabled        = false
     private var userBrawlerEnabled     = false
     private var duelHijackWaiting      = false
+    private var duelHijackLossWaiting  = false
 
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
     private val labelColorActive = Color.parseColor("#FFFF4444")
@@ -750,13 +751,15 @@ class OverlayService : Service() {
         val swClan       = view.findViewById<Switch>(R.id.sw_clan_battle)
         val swRaid       = view.findViewById<Switch>(R.id.sw_raid)
         val swBrawler    = view.findViewById<Switch>(R.id.sw_brawler)
-        val swDuelHijack = view.findViewById<Switch>(R.id.sw_duel_hijack)
+        val swDuelHijack     = view.findViewById<Switch>(R.id.sw_duel_hijack)
+        val swDuelHijackLoss = view.findViewById<Switch>(R.id.sw_duel_hijack_loss)
 
         styleSwitch(swEvent)
         styleSwitch(swClan)
         styleSwitch(swRaid)
         styleSwitch(swBrawler)
         styleSwitch(swDuelHijack)
+        styleSwitch(swDuelHijackLoss)
 
         swEvent.isChecked   = userEventBattleEnabled
         swClan.isChecked    = userClanBattleEnabled
@@ -864,6 +867,28 @@ class OverlayService : Service() {
                 vpn.cancelDuelHijack()
                 duelHijackWaiting = false
                 updateDuelHijackUi(view)
+            }
+        }
+
+        view.findViewById<Switch>(R.id.sw_duel_hijack_loss)?.setOnCheckedChangeListener { _, isChecked ->
+            val vpn = TrafficVpnService.instance
+            if (vpn == null) {
+                setDuelHijackLossStatus(view, "❌ VPN not running", terminal = true)
+                return@setOnCheckedChangeListener
+            }
+            if (isChecked) {
+                duelHijackLossWaiting = true
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                vpn.runDuelHijackLoss { status ->
+                    mainHandler.post {
+                        val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                        overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
+                    }
+                }
+            } else {
+                vpn.cancelDuelHijackLoss()
+                duelHijackLossWaiting = false
+                updateDuelHijackLossUi(view)
             }
         }
 
@@ -998,7 +1023,6 @@ class OverlayService : Service() {
         }
     }
 
-    /** Posts a status line under the duel hijack button. Terminal states also reset the button. */
     private fun setDuelHijackStatus(view: View, status: String, terminal: Boolean) {
         view.findViewById<TextView>(R.id.tv_duel_hijack_status)?.apply {
             text = status
@@ -1016,6 +1040,53 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updateDuelHijackLossUi(view: View) {
+        val sw = view.findViewById<Switch>(R.id.sw_duel_hijack_loss) ?: return
+        if (!duelHijackLossWaiting) {
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = false
+            view.findViewById<TextView>(R.id.tv_duel_hijack_loss_status)?.visibility = View.GONE
+            sw.setOnCheckedChangeListener { _, isChecked ->
+                val vpn = TrafficVpnService.instance
+                if (vpn == null) {
+                    setDuelHijackLossStatus(view, "❌ VPN not running", terminal = true)
+                    return@setOnCheckedChangeListener
+                }
+                if (isChecked) {
+                    duelHijackLossWaiting = true
+                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                    vpn.runDuelHijackLoss { status ->
+                        mainHandler.post {
+                            val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                            overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
+                        }
+                    }
+                } else {
+                    vpn.cancelDuelHijackLoss()
+                    duelHijackLossWaiting = false
+                    updateDuelHijackLossUi(view)
+                }
+            }
+        }
+    }
+
+    private fun setDuelHijackLossStatus(view: View, status: String, terminal: Boolean) {
+        view.findViewById<TextView>(R.id.tv_duel_hijack_loss_status)?.apply {
+            text = status
+            setTextColor(when {
+                status.startsWith("❌") || status.startsWith("⏰") -> Color.parseColor("#FFFF4444")
+                status.startsWith("✅")                           -> Color.parseColor("#FF3FB950")
+                else                                              -> Color.parseColor("#FFD29922")
+            })
+            visibility = View.VISIBLE
+        }
+        if (terminal) {
+            duelHijackLossWaiting = false
+            updateDuelHijackLossUi(view)
+            if (status.startsWith("✅") && isUserMode) flashLabelGreen(R.id.tv_label_duel_hijack_loss)
+        }
+    }
+
     override fun onDestroy() {
         AppState.viewModel.gameEvents.removeObserver(eventObserver)
         AppState.viewModel.gameEvents.removeObserver(winObserver)
@@ -1027,6 +1098,7 @@ class OverlayService : Service() {
         pendingArmJob?.cancel()
         pendingBrawlerArmJob?.cancel()
         if (duelHijackWaiting) TrafficVpnService.instance?.cancelDuelHijack()
+        if (duelHijackLossWaiting) TrafficVpnService.instance?.cancelDuelHijackLoss()
         serviceScope.cancel()
         removeOverlay()
         removeMini()

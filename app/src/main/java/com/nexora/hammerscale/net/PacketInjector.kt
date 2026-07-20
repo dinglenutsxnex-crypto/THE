@@ -83,12 +83,22 @@ object PacketInjector {
     fun buildBrawlerFinishWin(enemyBlob: ByteArray, counter: Long): ByteArray {
         val params = proto {
             bytesField(1, enemyBlob)
-            varintField(2, 1L)  // result: 1 = WIN
-            varintField(3, 2L)  // rounds won
+            varintField(2, 1L)
+            varintField(3, 2L)
             for (entry in BRAWLER_WIN_ROUND_ENTRIES) bytesField(4, entry)
-            varintField(5, 2L)  // total rounds
+            varintField(5, 2L)
             bytesField(6, BRAWLER_WIN_ITEMS)
             bytesField(7, BRAWLER_WIN_STATS)
+        }
+        return envelope("brawler_finish", params, counter)
+    }
+
+    fun buildBrawlerFinishLoss(enemyBlob: ByteArray, counter: Long): ByteArray {
+        val params = proto {
+            bytesField(1, enemyBlob)
+            varintField(2, 0L)
+            varintField(3, 0L)
+            varintField(5, 2L)
         }
         return envelope("brawler_finish", params, counter)
     }

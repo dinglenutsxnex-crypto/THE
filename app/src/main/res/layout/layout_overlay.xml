@@ -544,6 +544,51 @@
                 android:paddingBottom="6dp"
                 android:visibility="gone" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#FF21262D" />
+
+            <LinearLayout
+                android:id="@+id/row_duel_hijack_loss"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?android:attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/tv_label_duel_hijack_loss"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Duel Hijack Loss"
+                    android:textColor="#FFE6EDF3"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace" />
+
+                <Switch
+                    android:id="@+id/sw_duel_hijack_loss"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_duel_hijack_loss_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#FF8B949E"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:paddingHorizontal="0dp"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <TextView
