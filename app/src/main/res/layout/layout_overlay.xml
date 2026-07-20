@@ -507,48 +507,42 @@
             <LinearLayout
                 android:id="@+id/row_duel_hijack"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingTop="10dp"
-                android:paddingBottom="6dp">
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?android:attr/selectableItemBackground">
 
                 <TextView
                     android:id="@+id/tv_label_duel_hijack"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:text="Duel Hijack"
                     android:textColor="#FFE6EDF3"
                     android:textSize="13sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginBottom="6dp" />
+                    android:fontFamily="monospace" />
 
-                <TextView
-                    android:id="@+id/btn_duel_hijack"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:text="DUEL HIJACK"
-                    android:textColor="#FF0D1117"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:background="#FFDA3633"
-                    android:clickable="true"
-                    android:focusable="true" />
-
-                <TextView
-                    android:id="@+id/tv_duel_hijack_status"
-                    android:layout_width="match_parent"
+                <Switch
+                    android:id="@+id/sw_duel_hijack"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text=""
-                    android:textColor="#FF8B949E"
-                    android:textSize="10sp"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:layout_marginTop="4dp"
-                    android:visibility="gone" />
+                    android:checked="false" />
 
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_duel_hijack_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#FF8B949E"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:paddingHorizontal="0dp"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
 
         </LinearLayout>
 

@@ -843,19 +843,14 @@ class OverlayService : Service() {
             if (brawlerInterceptArmed) disarmBrawlerIntercept() else armBrawlerIntercept()
         }
 
-        view.findViewById<TextView>(R.id.btn_duel_hijack)?.setOnClickListener {
+        view.findViewById<Switch>(R.id.sw_duel_hijack)?.setOnCheckedChangeListener { _, isChecked ->
             val vpn = TrafficVpnService.instance
             if (vpn == null) {
                 setDuelHijackStatus(view, "❌ VPN not running", terminal = true)
-                return@setOnClickListener
+                return@setOnCheckedChangeListener
             }
-            if (duelHijackWaiting) {
-                vpn.cancelDuelHijack()
-                duelHijackWaiting = false
-                updateDuelHijackUi(view)
-            } else {
+            if (isChecked) {
                 duelHijackWaiting = true
-                updateDuelHijackUi(view)
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijack { status ->
                     mainHandler.post {
@@ -863,6 +858,10 @@ class OverlayService : Service() {
                         overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                     }
                 }
+            } else {
+                vpn.cancelDuelHijack()
+                duelHijackWaiting = false
+                updateDuelHijackUi(view)
             }
         }
 
@@ -968,15 +967,32 @@ class OverlayService : Service() {
     }
 
     private fun updateDuelHijackUi(view: View) {
-        val btn = view.findViewById<TextView>(R.id.btn_duel_hijack) ?: return
-        val statusTv = view.findViewById<TextView>(R.id.tv_duel_hijack_status) ?: return
-        if (duelHijackWaiting) {
-            btn.text = "CANCEL HIJACK"
-            btn.setBackgroundColor(Color.parseColor("#FFD29922"))
-        } else {
-            btn.text = "DUEL HIJACK"
-            btn.setBackgroundColor(Color.parseColor("#FFDA3633"))
-            statusTv.visibility = View.GONE
+        val sw = view.findViewById<Switch>(R.id.sw_duel_hijack) ?: return
+        if (!duelHijackWaiting) {
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = false
+            view.findViewById<TextView>(R.id.tv_duel_hijack_status)?.visibility = View.GONE
+            sw.setOnCheckedChangeListener { _, isChecked ->
+                val vpn = TrafficVpnService.instance
+                if (vpn == null) {
+                    setDuelHijackStatus(view, "❌ VPN not running", terminal = true)
+                    return@setOnCheckedChangeListener
+                }
+                if (isChecked) {
+                    duelHijackWaiting = true
+                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                    vpn.runDuelHijack { status ->
+                        mainHandler.post {
+                            val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                            overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
+                        }
+                    }
+                } else {
+                    vpn.cancelDuelHijack()
+                    duelHijackWaiting = false
+                    updateDuelHijackUi(view)
+                }
+            }
         }
     }
 
