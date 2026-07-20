@@ -746,15 +746,17 @@ class OverlayService : Service() {
             if (interceptIsArmed) disarmBattleIntercept() else armBattleIntercept()
         }
 
-        val swEvent   = view.findViewById<Switch>(R.id.sw_event_battle)
-        val swClan    = view.findViewById<Switch>(R.id.sw_clan_battle)
-        val swRaid    = view.findViewById<Switch>(R.id.sw_raid)
-        val swBrawler = view.findViewById<Switch>(R.id.sw_brawler)
+        val swEvent      = view.findViewById<Switch>(R.id.sw_event_battle)
+        val swClan       = view.findViewById<Switch>(R.id.sw_clan_battle)
+        val swRaid       = view.findViewById<Switch>(R.id.sw_raid)
+        val swBrawler    = view.findViewById<Switch>(R.id.sw_brawler)
+        val swDuelHijack = view.findViewById<Switch>(R.id.sw_duel_hijack)
 
         styleSwitch(swEvent)
         styleSwitch(swClan)
         styleSwitch(swRaid)
         styleSwitch(swBrawler)
+        styleSwitch(swDuelHijack)
 
         swEvent.isChecked   = userEventBattleEnabled
         swClan.isChecked    = userClanBattleEnabled
