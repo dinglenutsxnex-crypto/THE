@@ -859,7 +859,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijack { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                        val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
                         overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                     }
                 }
@@ -881,7 +881,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijackLoss { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                        val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
                         overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                     }
                 }
@@ -1010,7 +1010,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijack { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                            val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
                             overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                         }
                     }
@@ -1057,7 +1057,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijackLoss { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("✅") || status.startsWith("❌") || status.startsWith("⏰")
+                            val terminal = status.startsWith("🛑") || status.startsWith("❌") || status.startsWith("⏰")
                             overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                         }
                     }
