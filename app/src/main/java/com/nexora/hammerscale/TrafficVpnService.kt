@@ -179,6 +179,11 @@ class TrafficVpnService : VpnService() {
         }
     }
 
+    fun armClanIntercept(roundsToWin: Int = 2) {
+        tcpHandler?.armClanIntercept(roundsToWin)
+    }
+    fun disarmClanIntercept() { tcpHandler?.disarmClanIntercept() }
+
     fun armIntercept(roundsToWin: Int = 3) {
         tcpHandler?.armIntercept(roundsToWin)
     }

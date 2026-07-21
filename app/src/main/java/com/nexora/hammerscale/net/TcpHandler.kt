@@ -64,6 +64,10 @@ class TcpHandler(
     private val clanInterceptArmed  = java.util.concurrent.atomic.AtomicBoolean(false)
     private val clanInterceptRounds = java.util.concurrent.atomic.AtomicInteger(2)
 
+    fun armClanIntercept(roundsToWin: Int = 2) {
+        clanInterceptRounds.set(roundsToWin.coerceIn(1, 127))
+        clanInterceptArmed.set(true)
+    }
     fun disarmClanIntercept() { clanInterceptArmed.set(false) }
 
     private val raidInterceptArmed = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -187,8 +191,12 @@ class TcpHandler(
 
     private fun sniffClanStart(frame: ByteArray) {
         val rounds = GameProtocolParser.extractClanRoundsFromStartResponse(frame) ?: return
-        clanInterceptRounds.set(rounds)
-        clanInterceptArmed.set(true)
+        // Only update the rounds value; arming is controlled by the user toggle via armClanIntercept().
+        // If the intercept is already armed (user enabled it before this response arrived),
+        // refresh the rounds count so the correct value is used at patch time.
+        if (clanInterceptArmed.get()) {
+            clanInterceptRounds.set(rounds)
+        }
         onClanRounds(rounds)
     }
 

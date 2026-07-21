@@ -54,6 +54,7 @@ class OverlayService : Service() {
     private var lastWinConfirmedId: String? = null
 
     private var interceptIsArmed    = false
+    private var clanInterceptIsArmed = false
     private var raidInterceptArmed  = false
     private var brawlerInterceptArmed = false
     private var brawlerBattleActive   = false
@@ -136,8 +137,10 @@ class OverlayService : Service() {
             }
         }
         autoSetBattleId = currentBattleId
-        if (interceptIsArmed) {
-            TrafficVpnService.instance?.armIntercept(roundsToWin)
+        if (clanInterceptIsArmed) {
+            // Intercept already armed — refresh the rounds value so the correct count
+            // is used when the clan_finish_fight packet is patched.
+            TrafficVpnService.instance?.armClanIntercept(roundsToWin)
             Toast.makeText(this, "Clan rounds: $rounds (was $prev) — intercept updated", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "Clan rounds from server: $rounds", Toast.LENGTH_SHORT).show()
@@ -323,17 +326,29 @@ class OverlayService : Service() {
     }
 
     private fun armBattleIntercept() {
-        if (interceptIsArmed) return
         val vpn = TrafficVpnService.instance ?: return
-        interceptIsArmed = true
-        vpn.armIntercept(roundsToWin)
+        if (activeBattleType == BattleType.CLAN) {
+            if (clanInterceptIsArmed) return
+            clanInterceptIsArmed = true
+            interceptIsArmed = true  // kept in sync so UI indicators work
+            vpn.armClanIntercept(roundsToWin)
+        } else {
+            if (interceptIsArmed) return
+            interceptIsArmed = true
+            vpn.armIntercept(roundsToWin)
+        }
         updateEventsPanel()
     }
 
     private fun disarmBattleIntercept() {
+        val vpn = TrafficVpnService.instance
+        if (clanInterceptIsArmed) {
+            clanInterceptIsArmed = false
+            vpn?.disarmClanIntercept()
+        }
         if (!interceptIsArmed) return
         interceptIsArmed = false
-        TrafficVpnService.instance?.disarmIntercept()
+        vpn?.disarmIntercept()
         updateEventsPanel()
     }
 
@@ -455,6 +470,7 @@ class OverlayService : Service() {
             }
             lastWinConfirmedId != null -> {
                 interceptIsArmed = false
+                clanInterceptIsArmed = false
                 statusTv.text = "WIN CONFIRMED"
                 statusTv.setTextColor(Color.parseColor("#FF3FB950"))
                 idTv.text = "battle_id: $lastWinConfirmedId  /  server ACK"
@@ -463,6 +479,10 @@ class OverlayService : Service() {
                 rowRounds?.visibility = View.GONE
             }
             else -> {
+                if (clanInterceptIsArmed) {
+                    clanInterceptIsArmed = false
+                    TrafficVpnService.instance?.disarmClanIntercept()
+                }
                 if (interceptIsArmed) {
                     interceptIsArmed = false
                     TrafficVpnService.instance?.disarmIntercept()
@@ -716,11 +736,21 @@ class OverlayService : Service() {
         roundsValueTv?.text = roundsToWin.toString()
 
         view.findViewById<TextView>(R.id.btn_rounds_dec)?.setOnClickListener {
-            if (roundsToWin > 1) { roundsToWin--; roundsValueTv?.text = roundsToWin.toString() }
+            if (roundsToWin > 1) {
+                roundsToWin--
+                roundsValueTv?.text = roundsToWin.toString()
+                if (clanInterceptIsArmed) TrafficVpnService.instance?.armClanIntercept(roundsToWin)
+                else if (interceptIsArmed) TrafficVpnService.instance?.armIntercept(roundsToWin)
+            }
         }
 
         view.findViewById<TextView>(R.id.btn_rounds_inc)?.setOnClickListener {
-            if (roundsToWin < 9) { roundsToWin++; roundsValueTv?.text = roundsToWin.toString() }
+            if (roundsToWin < 9) {
+                roundsToWin++
+                roundsValueTv?.text = roundsToWin.toString()
+                if (clanInterceptIsArmed) TrafficVpnService.instance?.armClanIntercept(roundsToWin)
+                else if (interceptIsArmed) TrafficVpnService.instance?.armIntercept(roundsToWin)
+            }
         }
 
         view.findViewById<TextView>(R.id.btn_raid_max_dmg)?.setOnClickListener {
