@@ -310,6 +310,20 @@ def _parse_skin_skeleton_battles(skin_text: str, skeleton_rounds: dict) -> list:
     return results
 
 
+def _find_matching_bracket(text: str, open_idx: int) -> int:
+    """Given the index of an opening '[' in text, return the index of its
+    matching ']' (respecting nesting), or -1 if not found."""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == '[':
+            depth += 1
+        elif text[i] == ']':
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
 def _parse_direct(text: str) -> list:
     results = []
     id_re = re.compile(r'\bID\s*:\s*(\d{5,})')
@@ -318,6 +332,23 @@ def _parse_direct(text: str) -> list:
         # Long window: require DefaultTemplate to filter hub/locker non-combat battles
         ctx = text[m.start():min(len(text), m.start() + 2000)]
         if re.search(r'DefaultTemplate\s*:', ctx):
+            # Multi-fight battles define Fights:[ {RoundsToWin:N,...}, ... ]
+            # Each element is a separate sub-battle; grabbing only the first
+            # RoundsToWin in the window silently drops the rest (e.g. boss
+            # fights that require more rounds than the earlier stages).
+            fights_m = re.search(r'\bFights\s*:\s*\[', ctx)
+            if fights_m:
+                bracket_idx = m.start() + fights_m.end() - 1  # index of '['
+                arr_end = _find_matching_bracket(text, bracket_idx)
+                fights_block = text[bracket_idx:arr_end + 1] if arr_end != -1 else ctx
+                rounds_list = [int(x) for x in re.findall(r'RoundsToWin\s*:\s*(\d+)', fights_block)]
+                if len(rounds_list) > 1:
+                    results.append((bid, rounds_list))
+                    continue
+                elif len(rounds_list) == 1:
+                    results.append((bid, rounds_list[0]))
+                    continue
+                # else: fall through to generic single-value lookup below
             rm = re.search(r'RoundsToWin\s*:\s*(\d+)', ctx)
             results.append((bid, int(rm.group(1)) if rm else 3))
             continue
