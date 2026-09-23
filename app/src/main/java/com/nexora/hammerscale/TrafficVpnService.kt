@@ -378,22 +378,25 @@ class TrafficVpnService : VpnService() {
      * next cycle starts, since a single rejection is usually transient (cooldown, stale
      * socket) and ending the run on it would silently stop the user's farm.
      */
-    fun runBattleHijack(battleId: String, onStatus: (String, Boolean) -> Unit) {
+    fun runBattleHijack(battleId: String, onStatus: (String, Boolean, HijackTally) -> Unit) {
         battleHijackJob?.cancel()
 
-        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running", true); return }
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running", true, HijackTally.EMPTY); return }
         val vm = AppState.viewModel
 
         val id = battleId.trim().toLongOrNull()
-        if (id == null) { onStatus("ERROR: battle id must be numeric", true); return }
+        if (id == null) { onStatus("ERROR: battle id must be numeric", true, HijackTally.EMPTY); return }
 
         val rounds = BattleConfig.roundsFor(battleId.trim())
-        if (rounds == null) { onStatus("ERROR: battle $battleId not in table", true); return }
+        if (rounds == null) { onStatus("ERROR: battle $battleId not in table", true, HijackTally.EMPTY); return }
 
         battleHijackJob = scope.launch {
             var cycle = 0
-            var wins = 0
-            var rejections = 0
+            var accepts = 0
+            var fails = 0
+
+            // A failed step ends the cycle early; tally it and let the loop retry.
+            fun tally() = HijackTally(accepts, fails)
 
             // Each step gets its own deferred so a late reply to a previous command can
             // never release the next step's wait.
@@ -405,19 +408,23 @@ class TrafficVpnService : VpnService() {
                 return deferred
             }
 
+            // Sends one packet and waits for its reply. Returns null on success, else a
+            // short reason. The caller reports it and counts the fail exactly once.
             suspend fun send(
                 deferred: CompletableDeferred<BattleResult?>,
                 counter: Long,
                 frame: ByteArray,
                 label: String
-            ): Boolean {
+            ): String? {
                 val result = injectDirect(frame)
-                if (result.startsWith("FAIL")) {
-                    onStatus("ERROR: $label inject failed: $result", false)
-                    return false
-                }
+                if (result.startsWith("FAIL")) return "$label inject failed: $result"
                 Log.d("HammerBattle", "c$cycle $label ctr=$counter")
-                return awaitAck(deferred, onStatus, label)
+                return try {
+                    withTimeout(15_000) { deferred.await() }
+                    null
+                } catch (_: TimeoutCancellationException) {
+                    "no $label reply in 15s"
+                }
             }
 
             try {
@@ -429,19 +436,22 @@ class TrafficVpnService : VpnService() {
                     // fight and sends ONE finish whose round index is the battle's total round
                     // count. Omitting activate_ascension makes the server reject the finish
                     // with "Out of attempts".
+                    fun fail(reason: String) {
+                        fails++
+                        onStatus("FAIL: $reason — retrying", false, tally())
+                    }
+
                     val ascensionCounter = vm.nextInjectCounter
                     val ascensionAck = armAck("activate_ascension")
-                    if (!send(ascensionAck, ascensionCounter,
-                              PacketInjector.buildActivateAscension(id, ascensionCounter), "activate_ascension")) {
-                        delay(INTER_CYCLE_DELAY_MS); continue
-                    }
+                    val ascensionErr = send(ascensionAck, ascensionCounter,
+                        PacketInjector.buildActivateAscension(id, ascensionCounter), "activate_ascension")
+                    if (ascensionErr != null) { fail(ascensionErr); delay(INTER_CYCLE_DELAY_MS); continue }
 
                     val startCounter = vm.nextInjectCounter
                     val startAck = armAck("event_battle_start_fight")
-                    if (!send(startAck, startCounter,
-                              PacketInjector.buildEventBattleStart(id, startCounter), "start")) {
-                        delay(INTER_CYCLE_DELAY_MS); continue
-                    }
+                    val startErr = send(startAck, startCounter,
+                        PacketInjector.buildEventBattleStart(id, startCounter), "start")
+                    if (startErr != null) { fail(startErr); delay(INTER_CYCLE_DELAY_MS); continue }
 
                     val finishCounter = vm.nextInjectCounter
                     val finishAck = armAck("event_battle_finish_fight")
@@ -453,43 +463,25 @@ class TrafficVpnService : VpnService() {
                         counter = finishCounter,
                         won = true
                     )
-                    if (!send(finishAck, finishCounter, finishFrame, "finish")) {
-                        delay(INTER_CYCLE_DELAY_MS); continue
-                    }
+                    val finishErr = send(finishAck, finishCounter, finishFrame, "finish")
+                    if (finishErr != null) { fail(finishErr); delay(INTER_CYCLE_DELAY_MS); continue }
 
                     when (val verdict = awaitResult(finishAck)) {
                         is BattleResult.Accepted -> {
-                            wins++
-                            onStatus("WIN #$wins (cycle $cycle): server accepted ($battleId, ${verdict.resultBytes} bytes)", false)
+                            accepts++
+                            onStatus("$accepts accept (cycle $cycle, ${verdict.resultBytes} bytes)", false, tally())
                         }
-                        is BattleResult.Rejected -> {
-                            rejections++
-                            onStatus("REJECTED #$rejections (cycle $cycle): ${verdict.reason} — retrying", false)
-                        }
-                        null -> onStatus("TIMEOUT (cycle $cycle): no verdict — retrying", false)
+                        is BattleResult.Rejected -> fail(verdict.reason)
+                        null -> fail("no verdict")
                     }
 
                     delay(INTER_CYCLE_DELAY_MS)
                 }
             } finally {
                 handler.disarmBattleAck()
-                onStatus("STOPPED: $wins win(s) in $cycle cycle(s)", true)
-                Log.d("HammerBattle", "Hijack stopped — wins=$wins cycles=$cycle")
+                onStatus("STOPPED: $accepts accept, $fails fail", true, tally())
+                Log.d("HammerBattle", "Hijack stopped — accepts=$accepts fails=$fails cycles=$cycle")
             }
-        }
-    }
-
-    private suspend fun awaitAck(
-        deferred: CompletableDeferred<BattleResult?>,
-        onStatus: (String, Boolean) -> Unit,
-        label: String = "start"
-    ): Boolean {
-        return try {
-            withTimeout(15_000) { deferred.await() }
-            true
-        } catch (_: TimeoutCancellationException) {
-            onStatus("TIMEOUT: no $label reply in 15s — retrying", false)
-            false
         }
     }
 

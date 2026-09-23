@@ -26,6 +26,7 @@ import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.nexora.hammerscale.model.ConnectionViewModel
+import com.nexora.hammerscale.net.HijackTally
 import com.nexora.hammerscale.model.GameEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -826,6 +827,7 @@ class OverlayService : Service() {
         val swBrawler    = view.findViewById<Switch>(R.id.sw_brawler)
         val swDuelHijack     = view.findViewById<Switch>(R.id.sw_duel_hijack)
         val swDuelHijackLoss = view.findViewById<Switch>(R.id.sw_duel_hijack_loss)
+        val swBattleHijack   = view.findViewById<Switch>(R.id.sw_battle_hijack)
 
         styleSwitch(swEvent)
         styleSwitch(swClan)
@@ -833,6 +835,7 @@ class OverlayService : Service() {
         styleSwitch(swBrawler)
         styleSwitch(swDuelHijack)
         styleSwitch(swDuelHijackLoss)
+        styleSwitch(swBattleHijack)
 
         swEvent.isChecked   = userEventBattleEnabled
         swClan.isChecked    = userClanBattleEnabled
@@ -1181,7 +1184,7 @@ class OverlayService : Service() {
     private fun startBattleHijack(view: View) {
         val vpn = TrafficVpnService.instance
         if (vpn == null) {
-            setBattleHijackStatus(view, "ERROR: VPN not running", terminal = true)
+            setBattleHijackStatus(view, "ERROR: VPN not running", terminal = true, tally = HijackTally.EMPTY)
             return
         }
         val id = view.findViewById<android.widget.EditText>(R.id.et_battle_hijack_id)
@@ -1189,7 +1192,7 @@ class OverlayService : Service() {
         if (id.isEmpty()) {
             // Non-terminal: the input row is only visible while the toggle is on, so
             // flip-flopping the switch here would also hide the field to type into.
-            setBattleHijackStatus(view, "ERROR: enter a battle id", terminal = false)
+            setBattleHijackStatus(view, "ERROR: enter a battle id", terminal = false, tally = HijackTally.EMPTY)
             view.findViewById<android.widget.EditText>(R.id.et_battle_hijack_id)?.requestFocus()
             return
         }
@@ -1198,10 +1201,12 @@ class OverlayService : Service() {
         view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility = View.VISIBLE
 
         battleHijackWaiting = true
+        // Fresh run — drop the previous run's counters until new results arrive.
+        setBattleHijackStatus(view, "starting…", terminal = false, tally = HijackTally.EMPTY)
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        vpn.runBattleHijack(id) { status, terminal ->
+        vpn.runBattleHijack(id) { status, terminal, tally ->
             mainHandler.post {
-                overlayView?.let { v -> setBattleHijackStatus(v, status, terminal) }
+                overlayView?.let { v -> setBattleHijackStatus(v, status, terminal, tally) }
             }
         }
     }
@@ -1222,14 +1227,29 @@ class OverlayService : Service() {
         hookBattleHijackSwitch(view)
     }
 
-    private fun setBattleHijackStatus(view: View, status: String, terminal: Boolean) {
+    private fun setBattleHijackStatus(
+        view: View,
+        status: String,
+        terminal: Boolean,
+        tally: HijackTally
+    ) {
+        // Counters sit just above the status line: "x accept" always, "y fail" only once
+        // something has actually failed.
+        view.findViewById<View>(R.id.row_battle_hijack_tally)?.visibility =
+            if (tally.accepts > 0 || tally.fails > 0) View.VISIBLE else View.GONE
+        view.findViewById<TextView>(R.id.tv_battle_hijack_accept)?.text =
+            if (tally.accepts > 0) "${tally.accepts} accept" else ""
+        view.findViewById<TextView>(R.id.tv_battle_hijack_fail)?.apply {
+            text = "${tally.fails} fail"
+            visibility = if (tally.fails > 0) View.VISIBLE else View.GONE
+        }
+
         view.findViewById<TextView>(R.id.tv_battle_hijack_status)?.apply {
             text = status
             setTextColor(when {
-                status.startsWith("ERROR") || status.startsWith("TIMEOUT") ||
-                    status.startsWith("REJECTED")                             -> Color.parseColor("#FFFF4444")
-                status.startsWith("STOPPED")                                -> Color.parseColor("#FF3FB950")
-                else                                                        -> Color.parseColor("#FFD29922")
+                status.startsWith("ERROR") || status.startsWith("FAIL")   -> Color.parseColor("#FFFF4444")
+                status.startsWith("STOPPED")                              -> Color.parseColor("#FF3FB950")
+                else                                                      -> Color.parseColor("#FFD29922")
             })
             visibility = View.VISIBLE
         }

@@ -20,6 +20,12 @@ Replays an event battle by battle id: `activate_ascension` -> `event_battle_star
 previous one. The cycle repeats until the toggle is turned off; a rejected or timed-out
 cycle is reported and retried rather than ending the run. The battle id is kept in
 `ConnectionViewModel.battleHijackId` so the field survives closing/reopening the overlay.
+A `HijackTally` (accepts/fails) rides along with each status update; the UI shows
+"x accept" always and "y fail" only once something has failed.
+
+Switches in `layout_overlay.xml` are styled from code, not XML — every one must be passed
+to `OverlayService.styleSwitch` or it renders with the default platform colours instead of
+the translucent app theme. Buttons use `@drawable/btn_primary_bg`, fields `@drawable/input_bg`.
 
 ### Wire format
 
