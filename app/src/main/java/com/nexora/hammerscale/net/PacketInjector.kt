@@ -103,6 +103,65 @@ object PacketInjector {
         return envelope("brawler_finish", params, counter)
     }
 
+    /**
+     * Builds an outbound event_battle_start_fight frame.
+     * params[1] = battle id.
+     */
+    fun buildEventBattleStart(battleId: Long, counter: Long): ByteArray {
+        val params = proto { varintField(1, battleId) }
+        return envelope("event_battle_start_fight", params, counter)
+    }
+
+    /**
+     * Builds an outbound event_battle_finish_fight frame for a won round.
+     *
+     * Field layout and ordering below reproduce the captured SF3 client exactly
+     * (outer fields are emitted as 1, 4, 6, 7, 10, 13, 5):
+     *   params[1]  = battle id
+     *   params[4]  = 1 (client win)
+     *   params[6]  = {1: timestampMs}
+     *   params[7]  = rounds-to-win
+     *   params[10] = empty
+     *   params[13] = win blob
+     *   params[5]  = rounds-to-win (emitted last, as SF3 does)
+     *
+     * params[13][2] is the 1-based round index and params[13][4] is 0x01 (won); the
+     * remaining blob fields are the same zeroed stats the client sends.
+     */
+    fun buildEventBattleFinish(
+        battleId: Long,
+        roundsToWin: Int,
+        roundIdx: Int,
+        timestampMs: Long,
+        counter: Long
+    ): ByteArray {
+        val tsBlob = proto { varintField(1, timestampMs) }
+        val winBlob = proto {
+            varintField(2, roundIdx.toLong())
+            bytesField(3, byteArrayOf(0x00))
+            bytesField(4, byteArrayOf(0x01))
+            bytesField(5, byteArrayOf(0x00))
+            bytesField(6, floatLE(1.0f))
+            bytesField(7, floatLE(1.0f))
+            bytesField(8, floatLE(0.0f))
+            bytesField(9, byteArrayOf(0x00))
+            bytesField(10, byteArrayOf(0x00))
+        }
+        val params = proto {
+            varintField(1, battleId)
+            varintField(4, 1L)
+            bytesField(6, tsBlob)
+            varintField(7, roundsToWin.toLong())
+            bytesField(10, ByteArray(0))
+            bytesField(13, winBlob)
+            varintField(5, roundsToWin.toLong())
+        }
+        return envelope("event_battle_finish_fight", params, counter)
+    }
+
+    private fun floatLE(v: Float): ByteArray =
+        ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(v).array()
+
     fun patchFinishFightToWin(data: ByteArray, roundsToWin: Int = 3): ByteArray? {
         if (data.size < 3 || (data[0].toInt() and 0xFF) != 0x01) return null
         val frameLen = data[1].toInt() and 0xFF

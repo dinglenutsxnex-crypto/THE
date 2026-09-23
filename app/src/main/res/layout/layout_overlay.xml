@@ -589,6 +589,90 @@
                 android:paddingBottom="6dp"
                 android:visibility="gone" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#FF21262D" />
+
+            <LinearLayout
+                android:id="@+id/row_battle_hijack"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?android:attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/tv_label_battle_hijack"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Battle Hijack"
+                    android:textColor="#FFE6EDF3"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace" />
+
+                <Switch
+                    android:id="@+id/sw_battle_hijack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/row_battle_hijack_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingBottom="6dp"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/et_battle_hijack_id"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:background="#FF0D1117"
+                    android:hint="battle id"
+                    android:inputType="number"
+                    android:maxLength="9"
+                    android:paddingHorizontal="8dp"
+                    android:textColor="#FFE6EDF3"
+                    android:textColorHint="#FF444C56"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/btn_battle_hijack_start"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:background="#FF58A6FF"
+                    android:gravity="center"
+                    android:paddingHorizontal="14dp"
+                    android:text="START"
+                    android:textColor="#FF0D1117"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_battle_hijack_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#FF8B949E"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:paddingHorizontal="0dp"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <TextView

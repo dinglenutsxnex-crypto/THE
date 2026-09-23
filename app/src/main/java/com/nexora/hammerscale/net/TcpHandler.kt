@@ -112,6 +112,27 @@ class TcpHandler(
         cb()
     }
 
+    // Battle-hijack acknowledgement: fires when the server replies to a command we
+    // injected. Matching on command + counter mirrors the request/response pairing the
+    // game uses, so the hijack loop can send the next packet only after the reply lands.
+    @Volatile private var battleAckCallback: ((cmd: String, counter: Long) -> Unit)? = null
+
+    fun armBattleAck(onAck: (cmd: String, counter: Long) -> Unit) {
+        battleAckCallback = onAck
+    }
+
+    fun disarmBattleAck() {
+        battleAckCallback = null
+    }
+
+    private fun sniffBattleAck(frame: ByteArray) {
+        val cb = battleAckCallback ?: return
+        val ack = GameProtocolParser.parseBattleAck(frame) ?: return
+        battleAckCallback = null
+        android.util.Log.d("HammerBattle", "sniffBattleAck: ${ack.first} ctr=${ack.second}")
+        cb(ack.first, ack.second)
+    }
+
     // Login-ready signal: fires after SF3 sends `loginReadyPingsNeeded` outbound pings.
     // Indicates SF3 has reconnected and finished its login/clan handshake.
     @Volatile private var loginReadyCallback: (() -> Unit)? = null
@@ -537,6 +558,7 @@ class TcpHandler(
                         sniffEventBattleStart(frame01)
                         if (duelHijackArmed.get()) sniffDuelHijack(connId, frame01)
                         if (pingAckCallback != null) sniffPingAck(frame01)
+                        if (battleAckCallback != null) sniffBattleAck(frame01)
                     } else {
                         if (loginReadyCallback != null) sniffSf3Ping(frame01)
                     }
@@ -568,6 +590,7 @@ class TcpHandler(
                                 sniffEventBattleStart(frame02)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame02)
                                 if (pingAckCallback != null) sniffPingAck(frame02)
+                                if (battleAckCallback != null) sniffBattleAck(frame02)
                             } else {
                                 if (loginReadyCallback != null) sniffSf3Ping(frame02)
                             }
@@ -601,6 +624,7 @@ class TcpHandler(
                                 sniffEventBattleStart(frame03)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame03)
                                 if (pingAckCallback != null) sniffPingAck(frame03)
+                                if (battleAckCallback != null) sniffBattleAck(frame03)
                             } else {
                                 if (loginReadyCallback != null) sniffSf3Ping(frame03)
                             }

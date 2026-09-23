@@ -35,6 +35,7 @@ class TrafficVpnService : VpnService() {
     private var captureJob: Job? = null
     private var duelHijackJob: Job? = null
     private var duelHijackLossJob: Job? = null
+    private var battleHijackJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var tcpHandler: TcpHandler? = null
@@ -360,6 +361,104 @@ class TrafficVpnService : VpnService() {
 
     @Deprecated("use cancelDuelHijack()")
     fun disarmDuelHijack() = cancelDuelHijack()
+
+    /**
+     * Battle hijack: replays a whole event battle for a given battle id without playing it.
+     *
+     * Looks the battle id up in [BattleConfig] to get its rounds-to-win, then loops
+     * `event_battle_start_fight` -> server ack -> `event_battle_finish_fight` (win) ->
+     * server ack for as many rounds as the battle declares. Each packet is only sent
+     * after the server's reply for the previous one has arrived, matching the packet
+     * count and pacing of a real client-driven fight.
+     */
+    fun runBattleHijack(battleId: String, onStatus: (String) -> Unit) {
+        battleHijackJob?.cancel()
+
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
+        val vm = AppState.viewModel
+
+        val id = battleId.trim().toLongOrNull()
+        if (id == null) { onStatus("ERROR: battle id must be numeric"); return }
+
+        val rounds = BattleConfig.roundsFor(battleId.trim())
+        if (rounds == null) { onStatus("ERROR: battle $battleId not in table"); return }
+
+        battleHijackJob = scope.launch {
+            onStatus("Hijack armed — $battleId needs $rounds round(s)")
+
+            var pendingAck = CompletableDeferred<Unit>()
+            fun armAck(expectedCmd: String) {
+                pendingAck = CompletableDeferred()
+                handler.armBattleAck { cmd, _ ->
+                    // Only the reply to the packet we just sent releases the loop.
+                    if (cmd == expectedCmd && !pendingAck.isCompleted) pendingAck.complete(Unit)
+                }
+            }
+
+            var round = 0
+            while (isActive && round < rounds) {
+                round++
+
+                val startCounter = vm.nextInjectCounter
+                armAck("event_battle_start_fight")
+                val startResult = injectDirect(PacketInjector.buildEventBattleStart(id, startCounter))
+                Log.d("HammerBattle", "start r$round ctr=$startCounter -> $startResult")
+                if (startResult.startsWith("FAIL")) {
+                    onStatus("ERROR: start inject failed: $startResult")
+                    break
+                }
+                onStatus("[Round $round/$rounds] start sent, waiting for server...")
+
+                if (!awaitAck(pendingAck, handler, onStatus)) break
+
+                // Server accepted the round; it now expects the client's finish for it.
+                val finishCounter = vm.nextInjectCounter
+                armAck("event_battle_finish_fight")
+                val finishResult = injectDirect(
+                    PacketInjector.buildEventBattleFinish(
+                        battleId = id,
+                        roundsToWin = rounds,
+                        roundIdx = round,
+                        timestampMs = System.currentTimeMillis(),
+                        counter = finishCounter
+                    )
+                )
+                Log.d("HammerBattle", "finish r$round ctr=$finishCounter -> $finishResult")
+                if (finishResult.startsWith("FAIL")) {
+                    onStatus("ERROR: finish inject failed: $finishResult")
+                    break
+                }
+                onStatus("[Round $round/$rounds] finish sent, waiting for result...")
+
+                if (!awaitAck(pendingAck, handler, onStatus, "result")) break
+            }
+
+            handler.disarmBattleAck()
+            if (isActive) onStatus("STOPPED: $round/$rounds rounds for $battleId")
+        }
+    }
+
+    private suspend fun awaitAck(
+        deferred: CompletableDeferred<Unit>,
+        handler: TcpHandler,
+        onStatus: (String) -> Unit,
+        label: String = "start"
+    ): Boolean {
+        return try {
+            withTimeout(15_000) { deferred.await() }
+            true
+        } catch (_: TimeoutCancellationException) {
+            handler.disarmBattleAck()
+            onStatus("TIMEOUT: no $label reply in 15s. Tap again when ready.")
+            false
+        }
+    }
+
+    fun cancelBattleHijack() {
+        battleHijackJob?.cancel()
+        battleHijackJob = null
+        tcpHandler?.disarmBattleAck()
+    }
 
     fun stopVpn() {
         captureJob?.cancel()

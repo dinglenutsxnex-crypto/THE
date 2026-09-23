@@ -81,6 +81,8 @@ class OverlayService : Service() {
     private var userBrawlerEnabled     = false
     private var duelHijackWaiting      = false
     private var duelHijackLossWaiting  = false
+    private var battleHijackWaiting    = false
+    private var battleHijackId         = ""
 
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
     private val labelColorActive = Color.parseColor("#FFFF4444")
@@ -922,6 +924,15 @@ class OverlayService : Service() {
             }
         }
 
+        view.findViewById<Switch>(R.id.sw_battle_hijack)?.setOnCheckedChangeListener { _, isChecked ->
+            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
+                if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        view.findViewById<TextView>(R.id.btn_battle_hijack_start)?.setOnClickListener {
+            startBattleHijack(view)
+        }
+
         applyMode(view)
 
         updateEventsPanel()
@@ -1117,6 +1128,59 @@ class OverlayService : Service() {
         }
     }
 
+    private fun startBattleHijack(view: View) {
+        val vpn = TrafficVpnService.instance
+        if (vpn == null) {
+            setBattleHijackStatus(view, "ERROR: VPN not running", terminal = true)
+            return
+        }
+        val id = view.findViewById<android.widget.EditText>(R.id.et_battle_hijack_id)
+            ?.text?.toString()?.trim().orEmpty()
+        if (id.isEmpty()) {
+            setBattleHijackStatus(view, "ERROR: enter a battle id", terminal = true)
+            return
+        }
+        battleHijackId = id
+        battleHijackWaiting = true
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        vpn.runBattleHijack(id) { status ->
+            mainHandler.post {
+                val terminal = status.startsWith("STOPPED") ||
+                               status.startsWith("ERROR") ||
+                               status.startsWith("TIMEOUT")
+                overlayView?.let { v -> setBattleHijackStatus(v, status, terminal) }
+            }
+        }
+    }
+
+    private fun updateBattleHijackUi(view: View) {
+        val sw = view.findViewById<Switch>(R.id.sw_battle_hijack) ?: return
+        sw.setOnCheckedChangeListener(null)
+        sw.isChecked = false
+        view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility = View.GONE
+        view.findViewById<TextView>(R.id.tv_battle_hijack_status)?.visibility = View.GONE
+        sw.setOnCheckedChangeListener { _, isChecked ->
+            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
+                if (isChecked) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun setBattleHijackStatus(view: View, status: String, terminal: Boolean) {
+        view.findViewById<TextView>(R.id.tv_battle_hijack_status)?.apply {
+            text = status
+            setTextColor(when {
+                status.startsWith("ERROR") || status.startsWith("TIMEOUT") -> Color.parseColor("#FFFF4444")
+                status.startsWith("STOPPED")                                -> Color.parseColor("#FF3FB950")
+                else                                                        -> Color.parseColor("#FFD29922")
+            })
+            visibility = View.VISIBLE
+        }
+        if (terminal) {
+            battleHijackWaiting = false
+            if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_battle_hijack)
+        }
+    }
+
     override fun onDestroy() {
         AppState.viewModel.gameEvents.removeObserver(eventObserver)
         AppState.viewModel.gameEvents.removeObserver(winObserver)
@@ -1129,6 +1193,7 @@ class OverlayService : Service() {
         pendingBrawlerArmJob?.cancel()
         if (duelHijackWaiting) TrafficVpnService.instance?.cancelDuelHijack()
         if (duelHijackLossWaiting) TrafficVpnService.instance?.cancelDuelHijackLoss()
+        if (battleHijackWaiting) TrafficVpnService.instance?.cancelBattleHijack()
         serviceScope.cancel()
         removeOverlay()
         removeMini()
