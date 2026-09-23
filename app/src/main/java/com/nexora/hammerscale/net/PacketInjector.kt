@@ -113,6 +113,16 @@ object PacketInjector {
     }
 
     /**
+     * Builds an outbound activate_ascension frame: params carries only the battle id.
+     * Captured fights that were accepted always send this immediately before
+     * event_battle_start_fight; fights started without it are rejected with "Out of attempts".
+     */
+    fun buildActivateAscension(battleId: Long, counter: Long): ByteArray {
+        val params = proto { varintField(1, battleId) }
+        return envelope("activate_ascension", params, counter)
+    }
+
+    /**
      * Builds an outbound event_battle_finish_fight frame for a won round.
      *
      * Field layout and ordering below reproduce the captured SF3 client exactly

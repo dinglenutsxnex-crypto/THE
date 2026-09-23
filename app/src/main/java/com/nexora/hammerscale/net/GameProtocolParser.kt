@@ -111,13 +111,15 @@ object GameProtocolParser {
     /**
      * Parses a server acknowledgement for an injected event-battle command.
      * Returns (command, counter) when [frame] is the server's reply to a
-     * event_battle_start_fight / event_battle_finish_fight we sent, else null.
+     * event_battle_start_fight / event_battle_finish_fight / activate_ascension we sent,
+     * else null.
      */
     fun parseBattleAck(frame: ByteArray): Pair<String, Long>? {
         val payload = extractPayload(frame) ?: return null
         val fields = readProtoFields(payload)
         val cmd = (fields[2] as? ByteArray)?.toString(Charsets.UTF_8) ?: return null
-        if (cmd != "event_battle_start_fight" && cmd != "event_battle_finish_fight") return null
+        if (cmd != "event_battle_start_fight" && cmd != "event_battle_finish_fight" &&
+            cmd != "activate_ascension") return null
         val counter = fields[1] as? Long ?: return null
         return cmd to counter
     }

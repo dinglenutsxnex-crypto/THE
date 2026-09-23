@@ -34,6 +34,31 @@ class BattleHijackTest {
         "004a01005201002804"
     )
 
+    /** activate_ascension for 1029011 — precedes every accepted fight in both captures. */
+    private val acceptedAscension = hex(
+        "011c0819121261637469766174655f617363656e73696f6e1a040893e73e"
+    )
+
+    @Test
+    fun `activate ascension matches accepted capture`() {
+        assertEquals(
+            acceptedAscension.toList(),
+            PacketInjector.buildActivateAscension(1029011L, 25L).toList()
+        )
+    }
+
+    @Test
+    fun `activate ascension reply is parsed as a battle ack`() {
+        val server = byteArrayOf(0x01, 0x1c) + hex(
+            "0819121261637469766174655f617363656e73696f6e1a040893e73e"
+        )
+        assertEquals("activate_ascension" to 25L, GameProtocolParser.parseBattleAck(server))
+
+        // An unrelated command must not be mistaken for a battle ack.
+        val ping = byteArrayOf(0x01, 0x0c) + hex("081d120470696e67")
+        assertEquals(null, GameProtocolParser.parseBattleAck(ping))
+    }
+
     @Test
     fun `start fight matches accepted capture`() {
         assertEquals(

@@ -1,0 +1,47 @@
+# AGENTS.md
+
+## Build
+
+Set up a local toolchain under `/tmp/tools`, then build:
+
+```
+export JAVA_HOME=/tmp/tools/jdk-17.0.11+9
+export ANDROID_HOME=/tmp/tools/sdk
+export GRADLE_USER_HOME=/tmp/tools/gradle-home
+./gradlew :app:testReleaseUnitTest :app:assembleRelease
+```
+
+`app/src/main/res/raw/battles.enc` is generated and gitignored.
+
+## Battle Hijack
+
+Replays an event battle by battle id: `activate_ascension` -> `event_battle_start_fight`
+-> `event_battle_finish_fight`, one packet each, each gated on the server's reply to the
+previous one.
+
+### Wire format
+
+Envelopes are `[0x01][len][payload]` (plain) and `[0x03][len][deflate]`. Payload is
+protobuf: `1 = counter`, `2 = command name`, `3 = params message`.
+
+Finish params: `1 = battleId`, `4 = result code (1 win / 3 loss)`, `5 = total rounds`
+(win only), `6 = timestamp`, `7 = player id`, `13 = round blob` where `f2` is the total
+round count and `f4` is `0x00` on a win.
+
+### Findings from captured traffic (battle 1029011)
+
+Accepted fights always have an `activate_ascension` (params `[1] = battleId`) immediately
+before them; every fight injected without it got `[hz1] [java.lang.IllegalStateException]
+Out of attempts`. Both logs agree. The start and finish packets themselves are accepted
+byte-for-byte modulo counter/timestamp, so the packet contents are not what the rejection
+is about.
+
+Counter is a single shared sequence: every outbound message consumes one `nextInjectCounter`,
+and the server examples show the reply reuses the request's counter, so the server is
+tolerant of the small skew that injected packets introduce.
+
+`nextInjectCounter` uses `max(internal, observed)` where `observed` is the max counter seen
+on the wire from any connection, and the internal value is only bumped by injection. Injected
+packets are not counted as observed, so once traffic crosses the injector's internal counter,
+the comparison stalls and counters start colliding (two messages sharing one counter).
+Ordinary gameplay hides this because every non-injected packet advances `observed`.

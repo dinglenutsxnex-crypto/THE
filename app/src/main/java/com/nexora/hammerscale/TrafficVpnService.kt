@@ -395,9 +395,24 @@ class TrafficVpnService : VpnService() {
                 }
             }
 
-            // Capture: the client sends ONE start, plays the fight, then ONE finish whose
-            // round index is the battle's total round count. Sending start/finish per round
-            // (as before) produced four rejected packets and four "Out of attempts" replies.
+            // Capture: accepted fights always begin with activate_ascension for the battle
+            // id, immediately followed by ONE start. The client then plays the fight and
+            // sends ONE finish whose round index is the battle's total round count.
+            // Omitting activate_ascension (as injecting start directly did) makes the
+            // server reject the finish with "Out of attempts"; sending start/finish per
+            // round (the original code) produced four rejected packets.
+            val ascensionCounter = vm.nextInjectCounter
+            armAck("activate_ascension")
+            val ascensionResult = injectDirect(PacketInjector.buildActivateAscension(id, ascensionCounter))
+            Log.d("HammerBattle", "activate_ascension ctr=$ascensionCounter -> $ascensionResult")
+            if (ascensionResult.startsWith("FAIL")) {
+                onStatus("ERROR: activate_ascension inject failed: $ascensionResult")
+                handler.disarmBattleAck()
+                return@launch
+            }
+            onStatus("activate_ascension sent, waiting for server...")
+            if (!awaitAck(pendingAck, handler, onStatus, "activate_ascension")) return@launch
+
             val startCounter = vm.nextInjectCounter
             armAck("event_battle_start_fight")
             val startResult = injectDirect(PacketInjector.buildEventBattleStart(id, startCounter))
