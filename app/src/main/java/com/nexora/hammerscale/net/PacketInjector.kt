@@ -125,21 +125,27 @@ object PacketInjector {
      *   params[13] = win blob
      *   params[5]  = rounds-to-win (emitted last, as SF3 does)
      *
-     * params[13][2] is the 1-based round index and params[13][4] is 0x01 (won); the
-     * remaining blob fields are the same zeroed stats the client sends.
+     * params[13][2] is the 1-based round index and params[13][4] carries the result flag;
+     * the remaining blob fields are the same zeroed stats the client sends.
+     *
+     * Byte-for-byte against the accepted capture (battle 1029011, round 4 win) the only
+     * semantic differences from a rejected injection are:
+     *   params[13][2] = total rounds (e.g. 4), NOT the per-packet attempt index
+     *   params[13][4] = 0x00 on a win, 0x01 on a rejected/loss report
      */
     fun buildEventBattleFinish(
         battleId: Long,
         roundsToWin: Int,
         roundIdx: Int,
         timestampMs: Long,
-        counter: Long
+        counter: Long,
+        won: Boolean = true
     ): ByteArray {
         val tsBlob = proto { varintField(1, timestampMs) }
         val winBlob = proto {
             varintField(2, roundIdx.toLong())
             bytesField(3, byteArrayOf(0x00))
-            bytesField(4, byteArrayOf(0x01))
+            bytesField(4, byteArrayOf(if (won) 0x00 else 0x01))
             bytesField(5, byteArrayOf(0x00))
             bytesField(6, floatLE(1.0f))
             bytesField(7, floatLE(1.0f))

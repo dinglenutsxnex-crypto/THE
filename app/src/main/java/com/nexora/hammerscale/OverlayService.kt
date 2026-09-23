@@ -1192,7 +1192,9 @@ class OverlayService : Service() {
             mainHandler.post {
                 val terminal = status.startsWith("STOPPED") ||
                                status.startsWith("ERROR") ||
-                               status.startsWith("TIMEOUT")
+                               status.startsWith("TIMEOUT") ||
+                               status.startsWith("WON") ||
+                               status.startsWith("REJECTED")
                 overlayView?.let { v -> setBattleHijackStatus(v, status, terminal) }
             }
         }

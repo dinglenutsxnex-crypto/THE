@@ -386,60 +386,63 @@ class TrafficVpnService : VpnService() {
         battleHijackJob = scope.launch {
             onStatus("Hijack armed — $battleId needs $rounds round(s)")
 
-            var pendingAck = CompletableDeferred<Unit>()
+            var pendingAck = CompletableDeferred<BattleResult?>()
             fun armAck(expectedCmd: String) {
                 pendingAck = CompletableDeferred()
-                handler.armBattleAck { cmd, _ ->
+                handler.armBattleAck { cmd, _, result ->
                     // Only the reply to the packet we just sent releases the loop.
-                    if (cmd == expectedCmd && !pendingAck.isCompleted) pendingAck.complete(Unit)
+                    if (cmd == expectedCmd && !pendingAck.isCompleted) pendingAck.complete(result)
                 }
             }
 
-            var round = 0
-            while (isActive && round < rounds) {
-                round++
+            // Capture: the client sends ONE start, plays the fight, then ONE finish whose
+            // round index is the battle's total round count. Sending start/finish per round
+            // (as before) produced four rejected packets and four "Out of attempts" replies.
+            val startCounter = vm.nextInjectCounter
+            armAck("event_battle_start_fight")
+            val startResult = injectDirect(PacketInjector.buildEventBattleStart(id, startCounter))
+            Log.d("HammerBattle", "start ctr=$startCounter -> $startResult")
+            if (startResult.startsWith("FAIL")) {
+                onStatus("ERROR: start inject failed: $startResult")
+                handler.disarmBattleAck()
+                return@launch
+            }
+            onStatus("start sent, waiting for server...")
+            if (!awaitAck(pendingAck, handler, onStatus, "start")) return@launch
 
-                val startCounter = vm.nextInjectCounter
-                armAck("event_battle_start_fight")
-                val startResult = injectDirect(PacketInjector.buildEventBattleStart(id, startCounter))
-                Log.d("HammerBattle", "start r$round ctr=$startCounter -> $startResult")
-                if (startResult.startsWith("FAIL")) {
-                    onStatus("ERROR: start inject failed: $startResult")
-                    break
-                }
-                onStatus("[Round $round/$rounds] start sent, waiting for server...")
-
-                if (!awaitAck(pendingAck, handler, onStatus)) break
-
-                // Server accepted the round; it now expects the client's finish for it.
-                val finishCounter = vm.nextInjectCounter
-                armAck("event_battle_finish_fight")
-                val finishResult = injectDirect(
-                    PacketInjector.buildEventBattleFinish(
-                        battleId = id,
-                        roundsToWin = rounds,
-                        roundIdx = round,
-                        timestampMs = System.currentTimeMillis(),
-                        counter = finishCounter
-                    )
+            val finishCounter = vm.nextInjectCounter
+            armAck("event_battle_finish_fight")
+            val finishResult = injectDirect(
+                PacketInjector.buildEventBattleFinish(
+                    battleId = id,
+                    roundsToWin = rounds,
+                    roundIdx = rounds,
+                    timestampMs = System.currentTimeMillis(),
+                    counter = finishCounter,
+                    won = true
                 )
-                Log.d("HammerBattle", "finish r$round ctr=$finishCounter -> $finishResult")
-                if (finishResult.startsWith("FAIL")) {
-                    onStatus("ERROR: finish inject failed: $finishResult")
-                    break
-                }
-                onStatus("[Round $round/$rounds] finish sent, waiting for result...")
-
-                if (!awaitAck(pendingAck, handler, onStatus, "result")) break
+            )
+            Log.d("HammerBattle", "finish ctr=$finishCounter -> $finishResult")
+            if (finishResult.startsWith("FAIL")) {
+                onStatus("ERROR: finish inject failed: $finishResult")
+                handler.disarmBattleAck()
+                return@launch
             }
+            onStatus("finish sent, waiting for result...")
 
+            val verdict = awaitResult(pendingAck, handler, onStatus) ?: return@launch
             handler.disarmBattleAck()
-            if (isActive) onStatus("STOPPED: $round/$rounds rounds for $battleId")
+            when (verdict) {
+                is BattleResult.Accepted ->
+                    onStatus("WON: server accepted ($battleId, ${verdict.resultBytes} bytes)")
+                is BattleResult.Rejected ->
+                    onStatus("REJECTED: ${verdict.reason}")
+            }
         }
     }
 
     private suspend fun awaitAck(
-        deferred: CompletableDeferred<Unit>,
+        deferred: CompletableDeferred<BattleResult?>,
         handler: TcpHandler,
         onStatus: (String) -> Unit,
         label: String = "start"
@@ -451,6 +454,20 @@ class TrafficVpnService : VpnService() {
             handler.disarmBattleAck()
             onStatus("TIMEOUT: no $label reply in 15s. Tap again when ready.")
             false
+        }
+    }
+
+    private suspend fun awaitResult(
+        deferred: CompletableDeferred<BattleResult?>,
+        handler: TcpHandler,
+        onStatus: (String) -> Unit
+    ): BattleResult? {
+        return try {
+            withTimeout(15_000) { deferred.await() }
+        } catch (_: TimeoutCancellationException) {
+            handler.disarmBattleAck()
+            onStatus("TIMEOUT: no result reply in 15s. Tap again when ready.")
+            null
         }
     }
 

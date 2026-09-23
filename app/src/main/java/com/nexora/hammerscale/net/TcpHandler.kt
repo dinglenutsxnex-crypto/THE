@@ -115,9 +115,11 @@ class TcpHandler(
     // Battle-hijack acknowledgement: fires when the server replies to a command we
     // injected. Matching on command + counter mirrors the request/response pairing the
     // game uses, so the hijack loop can send the next packet only after the reply lands.
-    @Volatile private var battleAckCallback: ((cmd: String, counter: Long) -> Unit)? = null
+    // The reply's own verdict (accepted vs "Out of attempts") is passed through so the
+    // caller can report the real outcome instead of assuming success.
+    @Volatile private var battleAckCallback: ((cmd: String, counter: Long, result: BattleResult?) -> Unit)? = null
 
-    fun armBattleAck(onAck: (cmd: String, counter: Long) -> Unit) {
+    fun armBattleAck(onAck: (cmd: String, counter: Long, result: BattleResult?) -> Unit) {
         battleAckCallback = onAck
     }
 
@@ -128,9 +130,10 @@ class TcpHandler(
     private fun sniffBattleAck(frame: ByteArray) {
         val cb = battleAckCallback ?: return
         val ack = GameProtocolParser.parseBattleAck(frame) ?: return
+        val result = GameProtocolParser.classifyBattleResult(frame)
         battleAckCallback = null
-        android.util.Log.d("HammerBattle", "sniffBattleAck: ${ack.first} ctr=${ack.second}")
-        cb(ack.first, ack.second)
+        android.util.Log.d("HammerBattle", "sniffBattleAck: ${ack.first} ctr=${ack.second} result=$result")
+        cb(ack.first, ack.second, result)
     }
 
     // Login-ready signal: fires after SF3 sends `loginReadyPingsNeeded` outbound pings.

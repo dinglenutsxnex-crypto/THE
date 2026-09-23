@@ -122,6 +122,36 @@ object GameProtocolParser {
         return cmd to counter
     }
 
+    /**
+     * Classifies the server's reply to an injected event_battle_finish_fight.
+     *
+     * The server answers a rejected finish with a params-less envelope that carries the
+     * failure text in field 5, e.g.
+     *   "Out of attempts (playerId: 34699920)"
+     * An accepted round returns a large params payload (field 3) holding the battle
+     * result. Treating a bare "reply arrived" as a win is what made the hijack report
+     * false successes, so the raw frame is inspected for both shapes here.
+     */
+    fun classifyBattleResult(frame: ByteArray): BattleResult? {
+        val payload = extractPayload(frame) ?: return null
+        val fields = readProtoFields(payload)
+        val cmd = (fields[2] as? ByteArray)?.toString(Charsets.UTF_8) ?: return null
+        if (cmd != "event_battle_finish_fight") return null
+
+        (fields[5] as? ByteArray)?.let { err ->
+            val text = err.toString(Charsets.UTF_8)
+            if (text.contains("Out of attempts", ignoreCase = true) ||
+                text.contains("Exception", ignoreCase = true)
+            ) {
+                return BattleResult.Rejected(text)
+            }
+        }
+
+        val params = fields[3] as? ByteArray
+            ?: return BattleResult.Rejected("no result payload (params empty)")
+        return BattleResult.Accepted(params.size)
+    }
+
     fun tryExtractBrawlerFinish(data: ByteArray): Boolean {
         var pos = 0
         while (pos < data.size) {
