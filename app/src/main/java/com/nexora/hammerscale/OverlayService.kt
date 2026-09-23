@@ -1005,6 +1005,19 @@ class OverlayService : Service() {
         // the battle id field never appears.
         hookBattleHijackSwitch(view)
 
+        // The loop lives in the VPN service, so it keeps running while the overlay is closed.
+        // Reflect the real state on reopen: otherwise the toggle reads "off" while packets are
+        // still being sent, and there is no way left to stop them.
+        val hijackRunning = TrafficVpnService.instance?.isBattleHijackRunning() == true
+        view.findViewById<Switch>(R.id.sw_battle_hijack)?.let { sw ->
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = hijackRunning
+            hookBattleHijackSwitch(view)
+        }
+        view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
+            if (hijackRunning) View.VISIBLE else View.GONE
+        if (hijackRunning) restoreBattleHijackStatus(view)
+
         applyMode(view)
 
         updateEventsPanel()
@@ -1256,6 +1269,13 @@ class OverlayService : Service() {
         updateBattleHijackUi(view)
     }
 
+    /** Rebuild the tally row from a run that is already in flight. */
+    private fun restoreBattleHijackStatus(view: View) {
+        val vpn = TrafficVpnService.instance ?: return
+        if (!vpn.isBattleHijackRunning()) return
+        setBattleHijackStatus(view, "running…", terminal = false, tally = HijackTally.EMPTY)
+    }
+
     private fun updateBattleHijackUi(view: View) {
         val sw = view.findViewById<Switch>(R.id.sw_battle_hijack) ?: return
         sw.setOnCheckedChangeListener(null)
@@ -1293,6 +1313,8 @@ class OverlayService : Service() {
         }
         if (terminal) {
             battleHijackWaiting = false
+            // A failed step never reports terminal, so reaching here means the run genuinely
+            // ended. Drop the toggle back to off so it can be switched straight back on.
             val sw = view.findViewById<Switch>(R.id.sw_battle_hijack)
             if (sw?.isChecked == true) {
                 // Unhook first: the service has already ended, so flipping the switch off
@@ -1306,7 +1328,7 @@ class OverlayService : Service() {
                 updateBattleHijackUi(view)
                 if (isUserMode) flashLabelGreen(R.id.tv_label_battle_hijack)
             }
-            // On ERROR the input row stays up so the id can be corrected in place.
+            // On ERROR the input row stays up so the id can be corrected and restarted.
         }
     }
 

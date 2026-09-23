@@ -23,6 +23,22 @@ cycle is reported and retried rather than ending the run. The battle id is kept 
 A `HijackTally` (accepts/fails) rides along with each status update; the UI shows
 "x accept" always and "y fail" only once something has failed.
 
+### Run lifecycle
+
+The loop runs in the VPN service and outlives the overlay, so the toggle is a view of
+service state, not UI state. Two rules keep it stable:
+
+- `HijackRunGate` serialises runs. A cancelled coroutine still runs its `finally`, so a
+  replaced run's closing "STOPPED" would otherwise arrive after the next run started and
+  switch the toggle back off — the feature looked bricked. Only the newest run's statuses
+  reach the UI; `cancelBattleHijack` invalidates before cancelling.
+- `setupOverlay` restores the toggle and input row from `isBattleHijackRunning()`. Without
+  it, reopening the overlay showed "off" while packets were still being sent, leaving no
+  way to stop them.
+
+A failed step is reported non-terminal and only increments the fail counter; it must never
+end the run or leave it unable to restart. Only a real stop or an error is terminal.
+
 Switches in `layout_overlay.xml` are styled from code, not XML — every one must be passed
 to `OverlayService.styleSwitch` or it renders with the default platform colours instead of
 the translucent app theme. Buttons use `@drawable/btn_primary_bg`, fields `@drawable/input_bg`.

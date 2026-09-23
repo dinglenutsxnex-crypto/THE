@@ -38,6 +38,7 @@ class TrafficVpnService : VpnService() {
     private var duelHijackJob: Job? = null
     private var duelHijackLossJob: Job? = null
     private var battleHijackJob: Job? = null
+    private val battleHijackGate = HijackRunGate()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var tcpHandler: TcpHandler? = null
@@ -381,14 +382,20 @@ class TrafficVpnService : VpnService() {
     fun runBattleHijack(battleId: String, onStatus: (String, Boolean, HijackTally) -> Unit) {
         battleHijackJob?.cancel()
 
-        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running", true, HijackTally.EMPTY); return }
+        // A cancelled run still executes its finally, so bind this run to a generation and
+        // let the gate drop any status left over from the run we just replaced.
+        val run = battleHijackGate.newRun()
+        fun emit(status: String, terminal: Boolean, tally: HijackTally) =
+            run.emit(onStatus, status, terminal, tally)
+
+        val handler = tcpHandler ?: run { emit("ERROR: VPN not running", true, HijackTally.EMPTY); return }
         val vm = AppState.viewModel
 
         val id = battleId.trim().toLongOrNull()
-        if (id == null) { onStatus("ERROR: battle id must be numeric", true, HijackTally.EMPTY); return }
+        if (id == null) { emit("ERROR: battle id must be numeric", true, HijackTally.EMPTY); return }
 
         val rounds = BattleConfig.roundsFor(battleId.trim())
-        if (rounds == null) { onStatus("ERROR: battle $battleId not in table", true, HijackTally.EMPTY); return }
+        if (rounds == null) { emit("ERROR: battle $battleId not in table", true, HijackTally.EMPTY); return }
 
         battleHijackJob = scope.launch {
             var cycle = 0
@@ -438,7 +445,7 @@ class TrafficVpnService : VpnService() {
                     // with "Out of attempts".
                     fun fail(reason: String) {
                         fails++
-                        onStatus("FAIL: $reason — retrying", false, tally())
+                        emit("FAIL: $reason — retrying", false, tally())
                     }
 
                     val ascensionCounter = vm.nextInjectCounter
@@ -469,7 +476,7 @@ class TrafficVpnService : VpnService() {
                     when (val verdict = awaitResult(finishAck)) {
                         is BattleResult.Accepted -> {
                             accepts++
-                            onStatus("$accepts accept (cycle $cycle, ${verdict.resultBytes} bytes)", false, tally())
+                            emit("$accepts accept (cycle $cycle, ${verdict.resultBytes} bytes)", false, tally())
                         }
                         is BattleResult.Rejected -> fail(verdict.reason)
                         null -> fail("no verdict")
@@ -478,8 +485,10 @@ class TrafficVpnService : VpnService() {
                     delay(INTER_CYCLE_DELAY_MS)
                 }
             } finally {
-                handler.disarmBattleAck()
-                onStatus("STOPPED: $accepts accept, $fails fail", true, tally())
+                // Only the live run may tear down the ack hook: a superseded run's finally
+                // would otherwise disarm the hook the new run has just armed.
+                if (run.isCurrent) handler.disarmBattleAck()
+                emit("STOPPED: $accepts accept, $fails fail", true, tally())
                 Log.d("HammerBattle", "Hijack stopped — accepts=$accepts fails=$fails cycles=$cycle")
             }
         }
@@ -494,10 +503,15 @@ class TrafficVpnService : VpnService() {
     }
 
     fun cancelBattleHijack() {
+        // Invalidate first so the cancelled job's finally cannot report a stop we did not ask
+        // for from the UI's point of view.
+        battleHijackGate.invalidate()
         battleHijackJob?.cancel()
         battleHijackJob = null
         tcpHandler?.disarmBattleAck()
     }
+
+    fun isBattleHijackRunning(): Boolean = battleHijackJob?.isActive == true
 
     fun stopVpn() {
         captureJob?.cancel()
