@@ -21,6 +21,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -964,11 +965,15 @@ class OverlayService : Service() {
             }
         }
 
-        view.findViewById<Switch>(R.id.sw_battle_hijack)?.setOnCheckedChangeListener { _, isChecked ->
-            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
-                if (isChecked) View.VISIBLE else View.GONE
+        // Restore whatever the user last typed so closing/reopening the overlay or
+        // restarting the service does not clear the field, and keep it saved as they edit.
+        view.findViewById<EditText>(R.id.et_battle_hijack_id)?.let { et ->
+            et.setText(AppState.viewModel.battleHijackId)
+            et.doAfterTextChanged { AppState.viewModel.battleHijackId = it?.toString().orEmpty() }
         }
 
+        // START re-reads the field, so editing the id while armed takes effect on the
+        // next cycle without needing to toggle off and on again.
         view.findViewById<TextView>(R.id.btn_battle_hijack_start)?.setOnClickListener {
             startBattleHijack(view)
         }
@@ -1182,22 +1187,30 @@ class OverlayService : Service() {
         val id = view.findViewById<android.widget.EditText>(R.id.et_battle_hijack_id)
             ?.text?.toString()?.trim().orEmpty()
         if (id.isEmpty()) {
-            setBattleHijackStatus(view, "ERROR: enter a battle id", terminal = true)
+            // Non-terminal: the input row is only visible while the toggle is on, so
+            // flip-flopping the switch here would also hide the field to type into.
+            setBattleHijackStatus(view, "ERROR: enter a battle id", terminal = false)
+            view.findViewById<android.widget.EditText>(R.id.et_battle_hijack_id)?.requestFocus()
             return
         }
         battleHijackId = id
+        AppState.viewModel.battleHijackId = id
+        view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility = View.VISIBLE
+
         battleHijackWaiting = true
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        vpn.runBattleHijack(id) { status ->
+        vpn.runBattleHijack(id) { status, terminal ->
             mainHandler.post {
-                val terminal = status.startsWith("STOPPED") ||
-                               status.startsWith("ERROR") ||
-                               status.startsWith("TIMEOUT") ||
-                               status.startsWith("WON") ||
-                               status.startsWith("REJECTED")
                 overlayView?.let { v -> setBattleHijackStatus(v, status, terminal) }
             }
         }
+    }
+
+    /** Toggle turned off — stop the loop and put the switch back to idle. */
+    private fun stopBattleHijack(view: View) {
+        TrafficVpnService.instance?.cancelBattleHijack()
+        battleHijackWaiting = false
+        updateBattleHijackUi(view)
     }
 
     private fun updateBattleHijackUi(view: View) {
@@ -1206,17 +1219,15 @@ class OverlayService : Service() {
         sw.isChecked = false
         view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility = View.GONE
         view.findViewById<TextView>(R.id.tv_battle_hijack_status)?.visibility = View.GONE
-        sw.setOnCheckedChangeListener { _, isChecked ->
-            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
-                if (isChecked) View.VISIBLE else View.GONE
-        }
+        hookBattleHijackSwitch(view)
     }
 
     private fun setBattleHijackStatus(view: View, status: String, terminal: Boolean) {
         view.findViewById<TextView>(R.id.tv_battle_hijack_status)?.apply {
             text = status
             setTextColor(when {
-                status.startsWith("ERROR") || status.startsWith("TIMEOUT") -> Color.parseColor("#FFFF4444")
+                status.startsWith("ERROR") || status.startsWith("TIMEOUT") ||
+                    status.startsWith("REJECTED")                             -> Color.parseColor("#FFFF4444")
                 status.startsWith("STOPPED")                                -> Color.parseColor("#FF3FB950")
                 else                                                        -> Color.parseColor("#FFD29922")
             })
@@ -1224,7 +1235,29 @@ class OverlayService : Service() {
         }
         if (terminal) {
             battleHijackWaiting = false
-            if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_battle_hijack)
+            val sw = view.findViewById<Switch>(R.id.sw_battle_hijack)
+            if (sw?.isChecked == true) {
+                // Unhook first: the service has already ended, so flipping the switch off
+                // here must not re-enter stopBattleHijack().
+                sw.setOnCheckedChangeListener(null)
+                sw.isChecked = false
+                hookBattleHijackSwitch(view)
+            }
+            if (status.startsWith("STOPPED")) {
+                // Clean stop: collapse back to idle.
+                updateBattleHijackUi(view)
+                if (isUserMode) flashLabelGreen(R.id.tv_label_battle_hijack)
+            }
+            // On ERROR the input row stays up so the id can be corrected in place.
+        }
+    }
+
+    /** The switch is the on/off control: on starts the loop, off cancels it. */
+    private fun hookBattleHijackSwitch(view: View) {
+        view.findViewById<Switch>(R.id.sw_battle_hijack)?.setOnCheckedChangeListener { _, isChecked ->
+            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
+                if (isChecked) View.VISIBLE else View.GONE
+            if (isChecked) startBattleHijack(view) else stopBattleHijack(view)
         }
     }
 

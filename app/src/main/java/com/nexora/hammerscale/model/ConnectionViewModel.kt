@@ -41,6 +41,10 @@ class ConnectionViewModel : ViewModel() {
 
     @Volatile var lastPingNetDataBytes: ByteArray? = null
 
+    /** Battle id last entered for Battle Hijack; kept so closing/reopening the overlay
+     *  or restarting the service does not clear the field. */
+    @Volatile var battleHijackId: String = ""
+
     private val _gameEvents = MutableLiveData<List<GameEvent>>(emptyList())
     val gameEvents: LiveData<List<GameEvent>> = _gameEvents
     private val gameEventList = mutableListOf<GameEvent>()

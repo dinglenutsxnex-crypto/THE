@@ -25,6 +25,8 @@ class TrafficVpnService : VpnService() {
         const val TARGET_PACKAGE = "com.nekki.shadowfight3"
         const val CHANNEL_ID = "hammerscale_vpn"
         const val NOTIF_ID = 1001
+        /** Pause between battle-hijack cycles, mirroring the duel hijack's 1s gap. */
+        const val INTER_CYCLE_DELAY_MS = 1_000L
         const val VPN_ADDRESS = "10.0.0.1"
         const val VPN_ROUTE   = "0.0.0.0"
 
@@ -365,123 +367,136 @@ class TrafficVpnService : VpnService() {
     /**
      * Battle hijack: replays a whole event battle for a given battle id without playing it.
      *
-     * Looks the battle id up in [BattleConfig] to get its rounds-to-win, then loops
-     * `event_battle_start_fight` -> server ack -> `event_battle_finish_fight` (win) ->
-     * server ack for as many rounds as the battle declares. Each packet is only sent
-     * after the server's reply for the previous one has arrived, matching the packet
-     * count and pacing of a real client-driven fight.
+     * Looks the battle id up in [BattleConfig] to get its rounds-to-win, then runs
+     * `activate_ascension` -> server ack -> `event_battle_start_fight` -> server ack ->
+     * `event_battle_finish_fight` (win) -> server verdict. Each packet is only sent after
+     * the server's reply for the previous one has arrived, matching the packet count and
+     * pacing of a real client-driven fight.
+     *
+     * The cycle repeats until [cancelBattleHijack] is called (the toggle is turned off).
+     * A rejected or timed-out cycle does not end the loop: the status is reported and the
+     * next cycle starts, since a single rejection is usually transient (cooldown, stale
+     * socket) and ending the run on it would silently stop the user's farm.
      */
-    fun runBattleHijack(battleId: String, onStatus: (String) -> Unit) {
+    fun runBattleHijack(battleId: String, onStatus: (String, Boolean) -> Unit) {
         battleHijackJob?.cancel()
 
-        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running", true); return }
         val vm = AppState.viewModel
 
         val id = battleId.trim().toLongOrNull()
-        if (id == null) { onStatus("ERROR: battle id must be numeric"); return }
+        if (id == null) { onStatus("ERROR: battle id must be numeric", true); return }
 
         val rounds = BattleConfig.roundsFor(battleId.trim())
-        if (rounds == null) { onStatus("ERROR: battle $battleId not in table"); return }
+        if (rounds == null) { onStatus("ERROR: battle $battleId not in table", true); return }
 
         battleHijackJob = scope.launch {
-            onStatus("Hijack armed — $battleId needs $rounds round(s)")
+            var cycle = 0
+            var wins = 0
+            var rejections = 0
 
-            var pendingAck = CompletableDeferred<BattleResult?>()
-            fun armAck(expectedCmd: String) {
-                pendingAck = CompletableDeferred()
+            // Each step gets its own deferred so a late reply to a previous command can
+            // never release the next step's wait.
+            fun armAck(expectedCmd: String): CompletableDeferred<BattleResult?> {
+                val deferred = CompletableDeferred<BattleResult?>()
                 handler.armBattleAck { cmd, _, result ->
-                    // Only the reply to the packet we just sent releases the loop.
-                    if (cmd == expectedCmd && !pendingAck.isCompleted) pendingAck.complete(result)
+                    if (cmd == expectedCmd && !deferred.isCompleted) deferred.complete(result)
                 }
+                return deferred
             }
 
-            // Capture: accepted fights always begin with activate_ascension for the battle
-            // id, immediately followed by ONE start. The client then plays the fight and
-            // sends ONE finish whose round index is the battle's total round count.
-            // Omitting activate_ascension (as injecting start directly did) makes the
-            // server reject the finish with "Out of attempts"; sending start/finish per
-            // round (the original code) produced four rejected packets.
-            val ascensionCounter = vm.nextInjectCounter
-            armAck("activate_ascension")
-            val ascensionResult = injectDirect(PacketInjector.buildActivateAscension(id, ascensionCounter))
-            Log.d("HammerBattle", "activate_ascension ctr=$ascensionCounter -> $ascensionResult")
-            if (ascensionResult.startsWith("FAIL")) {
-                onStatus("ERROR: activate_ascension inject failed: $ascensionResult")
+            suspend fun send(
+                deferred: CompletableDeferred<BattleResult?>,
+                counter: Long,
+                frame: ByteArray,
+                label: String
+            ): Boolean {
+                val result = injectDirect(frame)
+                if (result.startsWith("FAIL")) {
+                    onStatus("ERROR: $label inject failed: $result", false)
+                    return false
+                }
+                Log.d("HammerBattle", "c$cycle $label ctr=$counter")
+                return awaitAck(deferred, onStatus, label)
+            }
+
+            try {
+                while (isActive) {
+                    cycle++
+
+                    // Capture: accepted fights always begin with activate_ascension for the
+                    // battle id, immediately followed by ONE start. The client then plays the
+                    // fight and sends ONE finish whose round index is the battle's total round
+                    // count. Omitting activate_ascension makes the server reject the finish
+                    // with "Out of attempts".
+                    val ascensionCounter = vm.nextInjectCounter
+                    val ascensionAck = armAck("activate_ascension")
+                    if (!send(ascensionAck, ascensionCounter,
+                              PacketInjector.buildActivateAscension(id, ascensionCounter), "activate_ascension")) {
+                        delay(INTER_CYCLE_DELAY_MS); continue
+                    }
+
+                    val startCounter = vm.nextInjectCounter
+                    val startAck = armAck("event_battle_start_fight")
+                    if (!send(startAck, startCounter,
+                              PacketInjector.buildEventBattleStart(id, startCounter), "start")) {
+                        delay(INTER_CYCLE_DELAY_MS); continue
+                    }
+
+                    val finishCounter = vm.nextInjectCounter
+                    val finishAck = armAck("event_battle_finish_fight")
+                    val finishFrame = PacketInjector.buildEventBattleFinish(
+                        battleId = id,
+                        roundsToWin = rounds,
+                        roundIdx = rounds,
+                        timestampMs = System.currentTimeMillis(),
+                        counter = finishCounter,
+                        won = true
+                    )
+                    if (!send(finishAck, finishCounter, finishFrame, "finish")) {
+                        delay(INTER_CYCLE_DELAY_MS); continue
+                    }
+
+                    when (val verdict = awaitResult(finishAck)) {
+                        is BattleResult.Accepted -> {
+                            wins++
+                            onStatus("WIN #$wins (cycle $cycle): server accepted ($battleId, ${verdict.resultBytes} bytes)", false)
+                        }
+                        is BattleResult.Rejected -> {
+                            rejections++
+                            onStatus("REJECTED #$rejections (cycle $cycle): ${verdict.reason} — retrying", false)
+                        }
+                        null -> onStatus("TIMEOUT (cycle $cycle): no verdict — retrying", false)
+                    }
+
+                    delay(INTER_CYCLE_DELAY_MS)
+                }
+            } finally {
                 handler.disarmBattleAck()
-                return@launch
-            }
-            onStatus("activate_ascension sent, waiting for server...")
-            if (!awaitAck(pendingAck, handler, onStatus, "activate_ascension")) return@launch
-
-            val startCounter = vm.nextInjectCounter
-            armAck("event_battle_start_fight")
-            val startResult = injectDirect(PacketInjector.buildEventBattleStart(id, startCounter))
-            Log.d("HammerBattle", "start ctr=$startCounter -> $startResult")
-            if (startResult.startsWith("FAIL")) {
-                onStatus("ERROR: start inject failed: $startResult")
-                handler.disarmBattleAck()
-                return@launch
-            }
-            onStatus("start sent, waiting for server...")
-            if (!awaitAck(pendingAck, handler, onStatus, "start")) return@launch
-
-            val finishCounter = vm.nextInjectCounter
-            armAck("event_battle_finish_fight")
-            val finishResult = injectDirect(
-                PacketInjector.buildEventBattleFinish(
-                    battleId = id,
-                    roundsToWin = rounds,
-                    roundIdx = rounds,
-                    timestampMs = System.currentTimeMillis(),
-                    counter = finishCounter,
-                    won = true
-                )
-            )
-            Log.d("HammerBattle", "finish ctr=$finishCounter -> $finishResult")
-            if (finishResult.startsWith("FAIL")) {
-                onStatus("ERROR: finish inject failed: $finishResult")
-                handler.disarmBattleAck()
-                return@launch
-            }
-            onStatus("finish sent, waiting for result...")
-
-            val verdict = awaitResult(pendingAck, handler, onStatus) ?: return@launch
-            handler.disarmBattleAck()
-            when (verdict) {
-                is BattleResult.Accepted ->
-                    onStatus("WON: server accepted ($battleId, ${verdict.resultBytes} bytes)")
-                is BattleResult.Rejected ->
-                    onStatus("REJECTED: ${verdict.reason}")
+                onStatus("STOPPED: $wins win(s) in $cycle cycle(s)", true)
+                Log.d("HammerBattle", "Hijack stopped — wins=$wins cycles=$cycle")
             }
         }
     }
 
     private suspend fun awaitAck(
         deferred: CompletableDeferred<BattleResult?>,
-        handler: TcpHandler,
-        onStatus: (String) -> Unit,
+        onStatus: (String, Boolean) -> Unit,
         label: String = "start"
     ): Boolean {
         return try {
             withTimeout(15_000) { deferred.await() }
             true
         } catch (_: TimeoutCancellationException) {
-            handler.disarmBattleAck()
-            onStatus("TIMEOUT: no $label reply in 15s. Tap again when ready.")
+            onStatus("TIMEOUT: no $label reply in 15s — retrying", false)
             false
         }
     }
 
-    private suspend fun awaitResult(
-        deferred: CompletableDeferred<BattleResult?>,
-        handler: TcpHandler,
-        onStatus: (String) -> Unit
-    ): BattleResult? {
+    private suspend fun awaitResult(deferred: CompletableDeferred<BattleResult?>): BattleResult? {
         return try {
             withTimeout(15_000) { deferred.await() }
         } catch (_: TimeoutCancellationException) {
-            handler.disarmBattleAck()
-            onStatus("TIMEOUT: no result reply in 15s. Tap again when ready.")
             null
         }
     }

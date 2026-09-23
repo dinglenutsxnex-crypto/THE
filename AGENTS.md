@@ -17,7 +17,9 @@ export GRADLE_USER_HOME=/tmp/tools/gradle-home
 
 Replays an event battle by battle id: `activate_ascension` -> `event_battle_start_fight`
 -> `event_battle_finish_fight`, one packet each, each gated on the server's reply to the
-previous one.
+previous one. The cycle repeats until the toggle is turned off; a rejected or timed-out
+cycle is reported and retried rather than ending the run. The battle id is kept in
+`ConnectionViewModel.battleHijackId` so the field survives closing/reopening the overlay.
 
 ### Wire format
 
