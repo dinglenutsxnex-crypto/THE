@@ -1000,6 +1000,11 @@ class OverlayService : Service() {
             startBattleHijack(view)
         }
 
+        // The switch is the on/off control for the loop. It must be hooked here: it is the
+        // only place that installs the listener, so without this the toggle does nothing and
+        // the battle id field never appears.
+        hookBattleHijackSwitch(view)
+
         applyMode(view)
 
         updateEventsPanel()
@@ -1305,12 +1310,25 @@ class OverlayService : Service() {
         }
     }
 
-    /** The switch is the on/off control: on starts the loop, off cancels it. */
+    /** The switch is the on/off control: on reveals the id field and starts the loop, off cancels it. */
     private fun hookBattleHijackSwitch(view: View) {
         view.findViewById<Switch>(R.id.sw_battle_hijack)?.setOnCheckedChangeListener { _, isChecked ->
-            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility =
-                if (isChecked) View.VISIBLE else View.GONE
-            if (isChecked) startBattleHijack(view) else stopBattleHijack(view)
+            if (!isChecked) {
+                stopBattleHijack(view)
+                return@setOnCheckedChangeListener
+            }
+
+            // Turning the toggle on is what reveals the battle id field. If an id is already
+            // there (restored from last time, or typed earlier) start straight away; otherwise
+            // just prompt, so the first toggle-on does not open with a red error.
+            view.findViewById<View>(R.id.row_battle_hijack_input)?.visibility = View.VISIBLE
+            val id = view.findViewById<EditText>(R.id.et_battle_hijack_id)
+                ?.text?.toString()?.trim().orEmpty()
+            if (id.isEmpty()) {
+                setBattleHijackStatus(view, "enter a battle id and press START", terminal = false, tally = HijackTally.EMPTY)
+            } else {
+                startBattleHijack(view)
+            }
         }
     }
 
