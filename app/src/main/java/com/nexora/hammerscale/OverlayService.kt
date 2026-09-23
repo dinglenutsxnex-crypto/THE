@@ -648,7 +648,8 @@ class OverlayService : Service() {
 
     private fun setOverlayFocus(focusable: Boolean) {
         val params = overlayParams ?: return
-        val wantFlags = if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        val wantFlags = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         if (params.flags == wantFlags) return
         params.flags = wantFlags
         try { windowManager.updateViewLayout(overlayView ?: return, params) } catch (_: Exception) {}
@@ -663,7 +664,11 @@ class OverlayService : Service() {
     ) = WindowManager.LayoutParams(
         w, h,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        // Keeps the display awake for as long as the overlay is visible. The flag is per-window,
+        // so this works for a TYPE_APPLICATION_OVERLAY window despite the docs describing it as
+        // an activity API, and it is not bound by the 30 minute screen_off_timeout cap.
+        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE),
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.END
