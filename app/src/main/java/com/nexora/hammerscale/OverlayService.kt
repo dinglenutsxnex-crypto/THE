@@ -89,6 +89,7 @@ class OverlayService : Service() {
     private var battleHijackWaiting    = false
     private var battleHijackId         = ""
     private var overlayParams: WindowManager.LayoutParams? = null
+    private var lastContentHeight = -1
 
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
     private val labelColorActive = Color.parseColor("#FFFF4444")
@@ -620,11 +621,29 @@ class OverlayService : Service() {
     private fun dp(value: Float): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics).toInt()
 
-    // The panel is taller than most screens once every row is visible; cap it and let
-    // the ScrollView inside handle the rest instead of the window running off-screen.
-    private fun overlayMaxHeight(): Int {
-        val screen = resources.displayMetrics.heightPixels
-        return (screen * 0.85f).toInt()
+    // The panel can be taller than the screen once every row is visible. The window uses
+    // gravity TOP at y, so the height it can actually occupy is the space from y to the
+    // bottom of the screen -- a flat "85% of screen" cap overflows the bottom edge whenever
+    // y > 15%, putting the last rows past the screen edge where no amount of scrolling can
+    // reach them. Fit the window to the smaller of the natural content height and the space
+    // available below y, so it stays shrink-wrapped when short and scrolls when tall.
+    private fun fitOverlayHeight(view: View) {
+        val params = overlayParams ?: return
+        val content = view.findViewById<View>(R.id.overlay_scroll_content)
+            ?: return
+        val header = view.findViewById<View>(R.id.overlay_header)?.measuredHeight ?: 0
+
+        // A ScrollView measures its child with an UNSPECIFIED height spec, so the content's
+        // measured height is its true natural height regardless of the window cap.
+        val natural = content.measuredHeight + header
+        if (natural <= 0) return
+
+        val avail = resources.displayMetrics.heightPixels - savedY - dp(8f)
+        val target = natural.coerceAtMost(avail.coerceAtLeast(dp(160f)))
+        if (params.height == target) return
+
+        params.height = target
+        try { windowManager.updateViewLayout(view, params) } catch (_: Exception) {}
     }
 
     private fun setOverlayFocus(focusable: Boolean) {
@@ -699,7 +718,7 @@ class OverlayService : Service() {
             adapter = this@OverlayService.adapter
         }
 
-        val params = makeParams(h = overlayMaxHeight())
+        val params = makeParams()
         overlayParams = params
         attachDrag(view.findViewById(R.id.overlay_header), view, params)
 
@@ -985,7 +1004,17 @@ class OverlayService : Service() {
 
         updateEventsPanel()
 
+        // Re-fit whenever the content changes size (mode switch, panels opening, the
+        // hijack input/tally rows appearing) so the panel never grows past the screen edge.
+        view.findViewById<View>(R.id.overlay_scroll_content)?.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            if (bottom - top != lastContentHeight) {
+                lastContentHeight = bottom - top
+                fitOverlayHeight(view)
+            }
+        }
+
         windowManager.addView(view, params)
+        view.post { fitOverlayHeight(view) }
     }
 
     private fun removeOverlay() {
@@ -996,6 +1025,7 @@ class OverlayService : Service() {
         overlayView?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         overlayView = null
         overlayParams = null
+        lastContentHeight = -1
     }
 
     private fun showMini() {
@@ -1081,7 +1111,10 @@ class OverlayService : Service() {
                     }
                     true
                 }
-                MotionEvent.ACTION_UP -> dragging
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) fitOverlayHeight(root)
+                    dragging
+                }
                 else -> false
             }
         }

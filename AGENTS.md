@@ -27,6 +27,16 @@ Switches in `layout_overlay.xml` are styled from code, not XML — every one mus
 to `OverlayService.styleSwitch` or it renders with the default platform colours instead of
 the translucent app theme. Buttons use `@drawable/btn_primary_bg`, fields `@drawable/input_bg`.
 
+### Panel height
+
+The overlay window uses gravity TOP at `savedY`, so its height must be derived from the
+space below `y`, not a flat fraction of the screen — a fixed cap overflows the bottom edge
+whenever `y` is large, leaving the last rows unreachable. `fitOverlayHeight` sizes the
+window to `min(natural content height, screen - savedY - margin)`, shrink-wrapping short
+content and scrolling tall content. It re-runs on content layout changes and after a drag,
+since either can change how much room is left. Any new row added to the panel needs no
+special handling, but do not reintroduce a fixed window height.
+
 ### Wire format
 
 Envelopes are `[0x01][len][payload]` (plain) and `[0x03][len][deflate]`. Payload is
