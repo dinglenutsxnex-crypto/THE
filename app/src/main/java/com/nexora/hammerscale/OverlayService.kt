@@ -6,6 +6,7 @@ import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -14,6 +15,8 @@ import android.os.Build
 import android.os.IBinder
 import android.util.TypedValue
 import android.view.*
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -83,6 +86,7 @@ class OverlayService : Service() {
     private var duelHijackLossWaiting  = false
     private var battleHijackWaiting    = false
     private var battleHijackId         = ""
+    private var overlayParams: WindowManager.LayoutParams? = null
 
     private val labelColorNormal = Color.parseColor("#FFE6EDF3")
     private val labelColorActive = Color.parseColor("#FFFF4444")
@@ -614,19 +618,36 @@ class OverlayService : Service() {
     private fun dp(value: Float): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics).toInt()
 
+    // The panel is taller than most screens once every row is visible; cap it and let
+    // the ScrollView inside handle the rest instead of the window running off-screen.
+    private fun overlayMaxHeight(): Int {
+        val screen = resources.displayMetrics.heightPixels
+        return (screen * 0.85f).toInt()
+    }
+
+    private fun setOverlayFocus(focusable: Boolean) {
+        val params = overlayParams ?: return
+        val wantFlags = if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        if (params.flags == wantFlags) return
+        params.flags = wantFlags
+        try { windowManager.updateViewLayout(overlayView ?: return, params) } catch (_: Exception) {}
+    }
+
     private fun makeParams(
         w: Int = dp(360f),
         h: Int = WindowManager.LayoutParams.WRAP_CONTENT,
         x: Int = savedX,
-        y: Int = savedY
+        y: Int = savedY,
+        focusable: Boolean = false
     ) = WindowManager.LayoutParams(
         w, h,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.END
         this.x = x; this.y = y
+        if (focusable) softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
     }
 
     private fun applyMode(view: View) {
@@ -676,8 +697,27 @@ class OverlayService : Service() {
             adapter = this@OverlayService.adapter
         }
 
-        val params = makeParams()
+        val params = makeParams(h = overlayMaxHeight())
+        overlayParams = params
         attachDrag(view.findViewById(R.id.overlay_header), view, params)
+
+        // The overlay window is FLAG_NOT_FOCUSABLE so the game keeps input and drags
+        // keep working. Taking focus only while a text field is being edited lets the
+        // IME (soft keyboard) come up; dropping it again hands input back to the game.
+        view.findViewById<EditText>(R.id.et_battle_hijack_id)?.let { et ->
+            et.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    setOverlayFocus(true)
+                    et.post {
+                        et.requestFocus()
+                        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                            .showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
+                false
+            }
+            et.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) setOverlayFocus(false) }
+        }
 
         view.findViewById<TextView>(R.id.btn_minimize).setOnClickListener {
             removeOverlay(); showMini()
@@ -941,8 +981,13 @@ class OverlayService : Service() {
     }
 
     private fun removeOverlay() {
+        overlayView?.findViewById<EditText>(R.id.et_battle_hijack_id)?.let { et ->
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .hideSoftInputFromWindow(et.windowToken, 0)
+        }
         overlayView?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         overlayView = null
+        overlayParams = null
     }
 
     private fun showMini() {
