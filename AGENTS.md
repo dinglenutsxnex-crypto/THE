@@ -67,7 +67,7 @@ outlives the overlay, so reopening the panel has to restore the switch from the 
 flag. `onDestroy` cancels whichever run the flags say is live.
 
 ### Infinite Coin speed
-The 1x/2x button below Infinite Coin toggles `coinRoundDelay` (1000ms vs 0) on the next run.
+The 1x/2x button below Infinite Coin toggles `coinRoundDelay` (150ms vs 0) on the next run.
 It does **not** open a second concurrent duel, because the server does not allow one: a
 captured 2x run shows a strictly alternating `start, finish, start, finish` stream with at
 most one duel open at a time, and the single rejected packet in that capture (`Brawler
@@ -76,6 +76,15 @@ once the previous finish is on the wire. The speed comes from removing the idle 
 rounds, not from parallelism — firing two starts then two finishes reproduces the rejection.
 The capture also confirms the reply to packet *i* is packet *i* and echoes its counter, so
 pipelining finishes is safe but pipelining starts is not.
+
+### Pacing
+All artificial pauses live in `net/DuelTiming.kt`, not inline in the loops. They are the
+throughput knobs, so they are the constants most likely to drift back up by accident:
+`PRE_FINISH_DELAY_MS` was a flat 300ms before every duel finish, and `INTER_CYCLE_DELAY_MS`
+was a 1s gap between battle-hijack cycles that by itself was most of the ~1.3s per accepted
+battle (a cycle is only three round-trips). Both are 50ms now. `DuelTimingTest` fails if
+either returns to the old order of magnitude, and `TcpHandler` sets `TCP_NODELAY` on the
+injected socket so these small control frames are not held by Nagle for an extra RTT.
 
 ### Force close
 The menu's FORCE CLOSE kills the HAMMERSCALE process from the overlay. It stops the VPN

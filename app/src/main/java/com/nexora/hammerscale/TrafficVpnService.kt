@@ -25,8 +25,11 @@ class TrafficVpnService : VpnService() {
         const val TARGET_PACKAGE = "com.nekki.shadowfight3"
         const val CHANNEL_ID = "hammerscale_vpn"
         const val NOTIF_ID = 1001
-        /** Pause between battle-hijack cycles, mirroring the duel hijack's 1s gap. */
-        const val INTER_CYCLE_DELAY_MS = 1_000L
+        /** Pause between battle-hijack cycles. See [DuelTiming]; was 1s, which dominated the
+         *  ~1.3s per accept. */
+        const val INTER_CYCLE_DELAY_MS = DuelTiming.INTER_CYCLE_DELAY_MS
+        /** Gap between a duel's start reply and its finish. Was a flat 300ms per round. */
+        const val PRE_FINISH_DELAY_MS = DuelTiming.PRE_FINISH_DELAY_MS
         const val VPN_ADDRESS = "10.0.0.1"
         const val VPN_ROUTE   = "0.0.0.0"
 
@@ -240,7 +243,7 @@ class TrafficVpnService : VpnService() {
 
                 wins++
                 onStatus("[Round $round | $wins wins] WIN")
-                delay(1_000)
+                delay(PRE_FINISH_DELAY_MS)
             }
 
             handler.disarmDuelHijack()
@@ -278,7 +281,7 @@ class TrafficVpnService : VpnService() {
 
                 losses++
                 onStatus("[Round $round | $losses losses] LOSS")
-                delay(1_000)
+                delay(PRE_FINISH_DELAY_MS)
             }
 
             handler.disarmDuelHijack()
@@ -311,10 +314,17 @@ class TrafficVpnService : VpnService() {
      * which is the invariant the rejection identifies.
      */
     fun runInfiniteCoin(onStatus: (String) -> Unit) {
-        runInfiniteCoin(onStatus, roundDelayMs = 1_000)
+        runInfiniteCoin(onStatus, roundDelayMs = 0L)
     }
 
-    /** [roundDelayMs] of 0 is the 2x setting: no idle gap between rounds. */
+    /**
+     * [roundDelayMs] is the pause after a completed round. 2x uses 0 so the next duel starts as
+     * soon as the previous finish is on the wire; 1x keeps a small gap.
+     *
+     * There is no pre-finish sleep any more. It was a flat 300ms on every duel and it bought
+     * nothing: the enemy blob we wait for *is* the server's acknowledgement of the start, so
+     * pausing after it only added latency to every round.
+     */
     fun runInfiniteCoin(onStatus: (String) -> Unit, roundDelayMs: Long) {
         infiniteCoinJob?.cancel()
 
@@ -325,7 +335,7 @@ class TrafficVpnService : VpnService() {
             var wins   = 0
             var losses = 0
 
-            onStatus("Infinite Coin armed — alternating win/loss (${if (roundDelayMs == 0L) "2x" else "1x"})")
+            onStatus("Infinite Coin armed — alternating win/loss")
 
             while (isActive) {
                 val win = alternation.nextDuelWins()
@@ -366,13 +376,19 @@ class TrafficVpnService : VpnService() {
      * outcome. Returns true once the finish was injected; false means the round could not
      * be played and the reason has already been reported through [onError], so the caller
      * should end its run.
+     *
+     * [preFinishDelayMs] is the only artificial pause in the round. It used to be a flat 300ms,
+     * paid on every duel; the reply already tells us the server is done with the start, so
+     * waiting further only added latency. It is now 50ms — enough to separate the finish from
+     * the start reply on the wire without meaningfully delaying the round.
      */
     private suspend fun runOneDuelRound(
         handler: TcpHandler,
         win: Boolean,
         logTag: String,
         onWaiting: () -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        preFinishDelayMs: Long = PRE_FINISH_DELAY_MS
     ): Boolean {
         val blobDeferred = CompletableDeferred<ByteArray>()
         handler.armDuelHijack { _, blob ->
@@ -399,7 +415,7 @@ class TrafficVpnService : VpnService() {
         }
 
         Log.d(logTag, "got blob ${enemyBlob.size}B")
-        delay(300)
+        if (preFinishDelayMs > 0) delay(preFinishDelayMs)
 
         val finishCounter = viewModel.nextInjectCounter
         val finishResult  = injectDirect(

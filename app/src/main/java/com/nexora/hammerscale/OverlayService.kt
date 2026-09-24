@@ -30,6 +30,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.nexora.hammerscale.model.ConnectionViewModel
 import com.nexora.hammerscale.net.HijackTally
+import com.nexora.hammerscale.net.DuelTiming
 import com.nexora.hammerscale.model.GameEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -94,7 +95,12 @@ class OverlayService : Service() {
      *  in the service, so both reset together when the service does. */
     private var coinSpeed2x            = false
 
-    private fun coinRoundDelay(): Long = if (coinSpeed2x) 0L else 1_000L
+    /**
+     * Gap between rounds. 1x keeps a deliberate pause; 2x starts the next duel the moment the
+     * previous finish is on the wire. Neither value includes the old 300ms pre-finish sleep,
+     * which is gone for all runs — it was pure added latency on every duel.
+     */
+    private fun coinRoundDelay(): Long = DuelTiming.coinRoundDelayMs(coinSpeed2x)
 
     private fun startInfiniteCoin(view: View) {
         val vpn = TrafficVpnService.instance

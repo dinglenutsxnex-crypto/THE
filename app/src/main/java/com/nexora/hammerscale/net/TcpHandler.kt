@@ -274,6 +274,10 @@ class TcpHandler(
                 val channel = SocketChannel.open()
                 channel.configureBlocking(false)
                 vpnService.protect(channel.socket())
+                // Nagle would hold these tiny control frames (75-400B) until an ACK comes back,
+                // adding up to a full RTT per packet. Every injected frame is small and
+                // latency-bound, so send each one immediately.
+                try { channel.socket().tcpNoDelay = true } catch (_: Exception) {}
                 channel.connect(InetSocketAddress(packet.ip.dstAddr, tcp.dstPort))
 
                 var attempts = 0
