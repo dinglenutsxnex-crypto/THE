@@ -51,4 +51,25 @@ class DuelAlternationTest {
         a.nextDuelWins()
         assertEquals(3, a.rounds)
     }
+
+    @Test
+    fun `rewind gives back a round that never played so the ratio does not drift`() {
+        val a = DuelAlternation()
+        a.nextDuelWins()          // round 1 -> win
+        a.nextDuelWins()          // round 2 -> loss
+        a.rewind()                // round 2 never actually ran
+
+        // The next real duel must still be the loss round 2 promised. Without rewind it would
+        // come back as a win (round 3), two wins in a row and the ratio climbs.
+        assertEquals(false, a.nextDuelWins())
+        assertEquals(2, a.rounds)
+    }
+
+    @Test
+    fun `rewind at zero is a no-op`() {
+        val a = DuelAlternation()
+        a.rewind()
+        assertEquals(0, a.rounds)
+        assertTrue(a.nextDuelWins())
+    }
 }

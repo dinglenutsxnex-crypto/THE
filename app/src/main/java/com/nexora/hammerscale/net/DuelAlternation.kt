@@ -25,4 +25,13 @@ class DuelAlternation {
         rounds++
         return rounds % 2 == 1
     }
+
+    /**
+     * Gives back the outcome reserved by the last [nextDuelWins] for a duel that never ran.
+     * Without this a failed round consumes an alternation slot, so the next real duel takes the
+     * wrong side and the ratio drifts.
+     */
+    fun rewind() {
+        if (rounds > 0) rounds--
+    }
 }

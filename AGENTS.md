@@ -66,6 +66,17 @@ Each toggle is triplicated: a listener in `setupOverlay`, a `updateXUi` restore 
 outlives the overlay, so reopening the panel has to restore the switch from the waiting
 flag. `onDestroy` cancels whichever run the flags say is live.
 
+### Infinite Coin speed
+The 1x/2x button below Infinite Coin toggles `coinRoundDelay` (1000ms vs 0) on the next run.
+It does **not** open a second concurrent duel, because the server does not allow one: a
+captured 2x run shows a strictly alternating `start, finish, start, finish` stream with at
+most one duel open at a time, and the single rejected packet in that capture (`Brawler
+already started`) is exactly where two starts landed back to back. A round may only begin
+once the previous finish is on the wire. The speed comes from removing the idle gap between
+rounds, not from parallelism — firing two starts then two finishes reproduces the rejection.
+The capture also confirms the reply to packet *i* is packet *i* and echoes its counter, so
+pipelining finishes is safe but pipelining starts is not.
+
 ### Force close
 The menu's FORCE CLOSE kills the HAMMERSCALE process from the overlay. It stops the VPN
 first so the tun interface, notification and overlay windows are released cleanly, then

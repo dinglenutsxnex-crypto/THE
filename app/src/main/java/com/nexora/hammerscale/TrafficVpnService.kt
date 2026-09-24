@@ -294,12 +294,28 @@ class TrafficVpnService : VpnService() {
     }
 
     /**
-     * Infinite Coin: alternates a won duel with a lost one (win, loss, win, loss...) so the
-     * win/loss ratio stays level instead of climbing, which is what the coin payout responds
-     * to. Both outcomes use the same round runner as the single-outcome hijacks, so the wire
-     * logic cannot drift between the three.
+     * Runs the Infinite Coin loop.
+     *
+     * What the capture of a working 2-lane run actually shows: a strictly alternating
+     * `start, finish, start, finish` stream, never two starts in a row, and at most one duel
+     * open at any moment. The single rejected packet in that capture (`Brawler already started`)
+     * is exactly the one place two starts did land back to back. So the server allows one open
+     * duel at a time; two duels cannot genuinely run in parallel.
+     *
+     * The speed in that run did not come from parallel duels — it came from removing the idle
+     * gap between rounds. `roundDelayMs` is that lever: 1x keeps the original pause, 2x drops it
+     * so a round begins the moment the previous finish is on the wire. Throughput roughly doubles
+     * because the dead time is gone, not because a second duel is open.
+     *
+     * Because a round only ever begins after the previous finish, starts can never be adjacent,
+     * which is the invariant the rejection identifies.
      */
     fun runInfiniteCoin(onStatus: (String) -> Unit) {
+        runInfiniteCoin(onStatus, roundDelayMs = 1_000)
+    }
+
+    /** [roundDelayMs] of 0 is the 2x setting: no idle gap between rounds. */
+    fun runInfiniteCoin(onStatus: (String) -> Unit, roundDelayMs: Long) {
         infiniteCoinJob?.cancel()
 
         val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
@@ -309,10 +325,9 @@ class TrafficVpnService : VpnService() {
             var wins   = 0
             var losses = 0
 
-            onStatus("Infinite Coin armed — alternating win/loss")
+            onStatus("Infinite Coin armed — alternating win/loss (${if (roundDelayMs == 0L) "2x" else "1x"})")
 
             while (isActive) {
-                // Odd rounds win, even rounds lose: the first duel of the run is a win.
                 val win = alternation.nextDuelWins()
                 val round = alternation.rounds
 
@@ -321,16 +336,21 @@ class TrafficVpnService : VpnService() {
                     onWaiting = { onStatus("[Round $round | W$wins L$losses] waiting for server...") },
                     onError   = { onStatus(it) }
                 )
-                if (!done) break
+                if (!done) {
+                    // Give back the outcome we reserved for a round that never played, or the
+                    // next real duel would inherit the wrong side of the alternation.
+                    alternation.rewind()
+                    break
+                }
 
                 if (win) wins++ else losses++
                 onStatus("[Round $round | W$wins L$losses] ${if (win) "WIN" else "LOSS"}")
-                delay(1_000)
+                if (roundDelayMs > 0) delay(roundDelayMs)
             }
 
             handler.disarmDuelHijack()
-            onStatus("STOPPED: $wins wins, $losses losses in ${alternation.rounds} rounds")
-            Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${alternation.rounds}")
+            onStatus("STOPPED: $wins wins, $losses losses in ${wins + losses} rounds")
+            Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${wins + losses}")
         }
     }
 

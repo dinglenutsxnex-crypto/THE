@@ -113,6 +113,26 @@ class OverlayLayoutTest {
     }
 
     @Test
+    fun `coin speed button sits right below the infinite coin row`() {
+        val btn = elementWithId("btn_coin_speed")
+        assertTrue("coin speed button missing", btn != null)
+
+        // Same reachability contract as the toggle: under the scrollable user-mode panel.
+        val ids = ancestorsOf(btn!!).map { it.getAttributeNS(ns, "id") }
+        assertTrue("speed button is not under panel_user_mode", "@+id/panel_user_mode" in ids)
+        assertTrue("speed button is not under overlay_scroll_content", "@+id/overlay_scroll_content" in ids)
+        assertTrue("speed button is not inside its row",
+            "@+id/row_infinite_coin_speed" in ancestorsOf(btn).map { it.getAttributeNS(ns, "id") })
+
+        // Order matters: the user asked for it below Infinite Coin, and the menu is built in
+        // document order.
+        val order = allElements()
+            .map { it.getAttributeNS(ns, "id") }
+            .filter { it == "@+id/row_infinite_coin" || it == "@+id/row_infinite_coin_speed" }
+        assertEquals(listOf("@+id/row_infinite_coin", "@+id/row_infinite_coin_speed"), order)
+    }
+
+    @Test
     fun `force close item sits in the menu panel below the mode toggle`() {
         val item = elementWithId("menu_force_close")
         assertTrue("force close item missing", item != null)

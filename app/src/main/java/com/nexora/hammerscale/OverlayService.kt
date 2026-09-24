@@ -90,6 +90,28 @@ class OverlayService : Service() {
     private var duelHijackWaiting      = false
     private var duelHijackLossWaiting  = false
     private var infiniteCoinWaiting    = false
+    /** False = 1x, true = 2x. In-memory like the other run flags; the loop it drives also lives
+     *  in the service, so both reset together when the service does. */
+    private var coinSpeed2x            = false
+
+    private fun coinRoundDelay(): Long = if (coinSpeed2x) 0L else 1_000L
+
+    private fun startInfiniteCoin(view: View) {
+        val vpn = TrafficVpnService.instance
+        if (vpn == null) {
+            setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
+            return
+        }
+        infiniteCoinWaiting = true
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        vpn.runInfiniteCoin({ status ->
+            mainHandler.post {
+                val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
+            }
+        }, coinRoundDelay())
+    }
+
     private var battleHijackWaiting    = false
     private var battleHijackId         = ""
     private var overlayParams: WindowManager.LayoutParams? = null
@@ -1013,20 +1035,17 @@ class OverlayService : Service() {
                 return@setOnCheckedChangeListener
             }
             if (isChecked) {
-                infiniteCoinWaiting = true
-                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-                vpn.runInfiniteCoin { status ->
-                    mainHandler.post {
-                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
-                        overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
-                    }
-                }
+                startInfiniteCoin(view)
             } else {
                 vpn.cancelInfiniteCoin()
                 infiniteCoinWaiting = false
                 updateInfiniteCoinUi(view)
             }
         }
+
+        // 1x/2x speed. The button is the only control for it, so it must be hooked here; the
+        // switch above reads coinSpeed2x when it starts a run.
+        hookCoinSpeedButton(view)
 
         // Restore whatever the user last typed so closing/reopening the overlay or
         // restarting the service does not clear the field, and keep it saved as they edit.
@@ -1289,6 +1308,36 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Shows the current speed on the button. Kept as a label rather than a Switch because the
+     * value is a choice of two, not an on/off, and the two states have to be readable at a glance
+     * while the run is going.
+     */
+    private fun hookCoinSpeedButton(view: View) {
+        val btn = view.findViewById<TextView>(R.id.btn_coin_speed) ?: return
+        btn.setOnClickListener {
+            coinSpeed2x = !coinSpeed2x
+            renderCoinSpeed(view)
+            // A run already in progress keeps its own delay; the new value applies to the next
+            // run, which is what the status line says so the user is not misled.
+            if (infiniteCoinWaiting) {
+                setInfiniteCoinStatus(
+                    view,
+                    "Speed set to ${if (coinSpeed2x) "2x" else "1x"} — applies to the next run",
+                    terminal = false
+                )
+            }
+        }
+        renderCoinSpeed(view)
+    }
+
+    private fun renderCoinSpeed(view: View) {
+        view.findViewById<TextView>(R.id.btn_coin_speed)?.apply {
+            text = if (coinSpeed2x) "2x" else "1x"
+            setTextColor(Color.parseColor(if (coinSpeed2x) "#FFF0883E" else "#FF58A6FF"))
+        }
+    }
+
     private fun updateInfiniteCoinUi(view: View) {
         val sw = view.findViewById<Switch>(R.id.sw_infinite_coin) ?: return
         if (!infiniteCoinWaiting) {
@@ -1302,14 +1351,7 @@ class OverlayService : Service() {
                     return@setOnCheckedChangeListener
                 }
                 if (isChecked) {
-                    infiniteCoinWaiting = true
-                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-                    vpn.runInfiniteCoin { status ->
-                        mainHandler.post {
-                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
-                            overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
-                        }
-                    }
+                    startInfiniteCoin(view)
                 } else {
                     vpn.cancelInfiniteCoin()
                     infiniteCoinWaiting = false
@@ -1317,6 +1359,7 @@ class OverlayService : Service() {
                 }
             }
         }
+        renderCoinSpeed(view)
     }
 
     private fun setInfiniteCoinStatus(view: View, status: String, terminal: Boolean) {
