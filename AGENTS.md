@@ -53,6 +53,12 @@ content and scrolling tall content. It re-runs on content layout changes and aft
 since either can change how much room is left. Any new row added to the panel needs no
 special handling, but do not reintroduce a fixed window height.
 
+### Force close
+The menu's FORCE CLOSE kills the HAMMERSCALE process from the overlay. It stops the VPN
+first so the tun interface, notification and overlay windows are released cleanly, then
+kills the process after a short delay so those shutdown paths get to run — `stopSelf()`
+alone would leave the process (and its VPN) alive.
+
 ### Wire format
 
 Envelopes are `[0x01][len][payload]` (plain) and `[0x03][len][deflate]`. Payload is
