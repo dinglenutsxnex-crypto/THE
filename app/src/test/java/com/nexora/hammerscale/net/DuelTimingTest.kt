@@ -1,6 +1,5 @@
 package com.nexora.hammerscale.net
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,10 +34,10 @@ class DuelTimingTest {
     }
 
     @Test
-    fun `2x is strictly faster than 1x`() {
-        val oneX = DuelTiming.coinRoundDelayMs(speed2x = false)
-        val twoX = DuelTiming.coinRoundDelayMs(speed2x = true)
-        assertTrue("2x ($twoX) must not be slower than 1x ($oneX)", twoX < oneX)
-        assertEquals(0L, twoX)
+    fun `infinite coin does not throttle between rounds`() {
+        assertTrue(
+            "coin round delay is ${DuelTiming.COIN_ROUND_DELAY_MS}ms — a gap between rounds is back",
+            DuelTiming.COIN_ROUND_DELAY_MS <= 50
+        )
     }
 }

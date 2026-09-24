@@ -43,6 +43,7 @@ class TrafficVpnService : VpnService() {
     private var infiniteCoinJob: Job? = null
     private var battleHijackJob: Job? = null
     private val battleHijackGate = HijackRunGate()
+    private val infiniteCoinGate = HijackRunGate()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var tcpHandler: TcpHandler? = null
@@ -297,45 +298,37 @@ class TrafficVpnService : VpnService() {
     }
 
     /**
-     * Runs the Infinite Coin loop.
+     * Runs the Infinite Coin loop: duels alternate win, loss, win, loss so the win/loss ratio
+     * stays level, which is what the coin payout responds to.
      *
-     * What the capture of a working 2-lane run actually shows: a strictly alternating
-     * `start, finish, start, finish` stream, never two starts in a row, and at most one duel
-     * open at any moment. The single rejected packet in that capture (`Brawler already started`)
-     * is exactly the one place two starts did land back to back. So the server allows one open
-     * duel at a time; two duels cannot genuinely run in parallel.
-     *
-     * The speed in that run did not come from parallel duels — it came from removing the idle
-     * gap between rounds. `roundDelayMs` is that lever: 1x keeps the original pause, 2x drops it
-     * so a round begins the moment the previous finish is on the wire. Throughput roughly doubles
-     * because the dead time is gone, not because a second duel is open.
-     *
-     * Because a round only ever begins after the previous finish, starts can never be adjacent,
-     * which is the invariant the rejection identifies.
+     * What the capture of a working run shows: a strictly alternating `start, finish, start,
+     * finish` stream, never two starts in a row, and at most one duel open at any moment. The
+     * single rejected packet in that capture (`Brawler already started`) is exactly the one
+     * place two starts did land back to back. So a round only begins once the previous finish
+     * is on the wire, and that ordering is what keeps the server from rejecting.
      */
     fun runInfiniteCoin(onStatus: (String) -> Unit) {
-        runInfiniteCoin(onStatus, roundDelayMs = 0L)
-    }
-
-    /**
-     * [roundDelayMs] is the pause after a completed round. 2x uses 0 so the next duel starts as
-     * soon as the previous finish is on the wire; 1x keeps a small gap.
-     *
-     * There is no pre-finish sleep any more. It was a flat 300ms on every duel and it bought
-     * nothing: the enemy blob we wait for *is* the server's acknowledgement of the start, so
-     * pausing after it only added latency to every round.
-     */
-    fun runInfiniteCoin(onStatus: (String) -> Unit, roundDelayMs: Long) {
         infiniteCoinJob?.cancel()
 
         val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
+
+        // A cancelled coroutine still runs its closing "STOPPED", so without a gate the old
+        // run's teardown would arrive after the new run began and clear infiniteCoinWaiting,
+        // leaving the toggle reading "off" while duels were still playing. Only the newest
+        // run's statuses reach the UI.
+        val run = infiniteCoinGate.newRun()
 
         infiniteCoinJob = scope.launch {
             val alternation = DuelAlternation()
             var wins   = 0
             var losses = 0
 
-            onStatus("Infinite Coin armed — alternating win/loss")
+            // The overlay derives "terminal" from the status prefix, so only the text goes out.
+            fun emit(status: String) {
+                if (run.isCurrent) onStatus(status)
+            }
+
+            emit("Infinite Coin armed — alternating win/loss")
 
             while (isActive) {
                 val win = alternation.nextDuelWins()
@@ -343,8 +336,8 @@ class TrafficVpnService : VpnService() {
 
                 val done = runOneDuelRound(
                     handler, win = win, logTag = "HammerCoin",
-                    onWaiting = { onStatus("[Round $round | W$wins L$losses] waiting for server...") },
-                    onError   = { onStatus(it) }
+                    onWaiting = { emit("[Round $round | W$wins L$losses] waiting for server...") },
+                    onError   = { emit(it) }
                 )
                 if (!done) {
                     // Give back the outcome we reserved for a round that never played, or the
@@ -354,17 +347,26 @@ class TrafficVpnService : VpnService() {
                 }
 
                 if (win) wins++ else losses++
-                onStatus("[Round $round | W$wins L$losses] ${if (win) "WIN" else "LOSS"}")
-                if (roundDelayMs > 0) delay(roundDelayMs)
+                emit("[Round $round | W$wins L$losses] ${if (win) "WIN" else "LOSS"}")
+                if (DuelTiming.COIN_ROUND_DELAY_MS > 0) delay(DuelTiming.COIN_ROUND_DELAY_MS)
             }
 
-            handler.disarmDuelHijack()
-            onStatus("STOPPED: $wins wins, $losses losses in ${wins + losses} rounds")
+            // Only the live run may tear the hook down: a superseded run's teardown would
+            // disarm the hook its replacement has just armed.
+            if (run.isCurrent) handler.disarmDuelHijack()
+            emit("STOPPED: $wins wins, $losses losses in ${wins + losses} rounds")
             Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${wins + losses}")
         }
     }
 
+    /** True while the Infinite Coin loop is live, so the overlay can restore its toggle. */
+    fun isInfiniteCoinRunning(): Boolean = infiniteCoinJob?.isActive == true
+
     fun cancelInfiniteCoin() {
+        // Invalidate before cancelling, same as the battle hijack: the cancelled run's finally
+        // still emits a "STOPPED", and without this it would reach the UI after the stop and
+        // tear down the hook a fresh run may have armed.
+        infiniteCoinGate.invalidate()
         infiniteCoinJob?.cancel()
         infiniteCoinJob = null
         tcpHandler?.disarmDuelHijack()

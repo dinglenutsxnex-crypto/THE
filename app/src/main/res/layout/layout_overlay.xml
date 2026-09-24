@@ -649,39 +649,6 @@
                 android:paddingBottom="6dp"
                 android:visibility="gone" />
 
-            <LinearLayout
-                android:id="@+id/row_infinite_coin_speed"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/tv_coin_speed_label"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Speed"
-                    android:textColor="#FF8B949E"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace" />
-
-                <TextView
-                    android:id="@+id/btn_coin_speed"
-                    android:layout_width="64dp"
-                    android:layout_height="36dp"
-                    android:text="1x"
-                    android:textColor="#FF58A6FF"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:background="#FF21262D"
-                    android:clickable="true"
-                    android:focusable="true" />
-
-            </LinearLayout>
-
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"

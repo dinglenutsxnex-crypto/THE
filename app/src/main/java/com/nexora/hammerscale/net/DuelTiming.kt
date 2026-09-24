@@ -18,32 +18,18 @@ object DuelTiming {
      * Gap between a duel's start reply and its finish.
      *
      * The reply is the server's acknowledgement that the start was processed, so waiting longer
-     * adds latency and buys nothing. 50ms keeps the finish from sharing a tick with the reply
-     * without meaningfully delaying the round. Was 300ms.
+     * adds latency and buys nothing. 1ms keeps the finish from sharing a tick with the reply.
+     * Was 300ms, then 50ms.
      */
-    const val PRE_FINISH_DELAY_MS = 50L
+    const val PRE_FINISH_DELAY_MS = 1L
 
     /**
      * Pause between battle-hijack cycles. A cycle is `activate_ascension`, `start`, `finish`,
      * each already waiting on its own reply, so this gap only throttled throughput. Was 1s,
-     * which dominated the per-cycle time.
+     * which dominated the per-cycle time; then 50ms.
      */
-    const val INTER_CYCLE_DELAY_MS = 50L
+    const val INTER_CYCLE_DELAY_MS = 1L
 
-    /** Gap after a completed Infinite Coin round at 1x. */
-    const val COIN_ROUND_DELAY_1X_MS = 150L
-
-    /**
-     * Gap after a completed Infinite Coin round at 2x: none. The next duel starts the moment the
-     * previous finish is on the wire.
-     */
-    const val COIN_ROUND_DELAY_2X_MS = 0L
-
-    /**
-     * The Infinite Coin gap for a given speed setting. 2x must always be the faster of the two —
-     * the button is the only thing the user sees, so a 2x that was slower than 1x would read as
-     * the feature being backwards.
-     */
-    fun coinRoundDelayMs(speed2x: Boolean): Long =
-        if (speed2x) COIN_ROUND_DELAY_2X_MS else COIN_ROUND_DELAY_1X_MS
+    /** Gap after a completed Infinite Coin round. Effectively none. */
+    const val COIN_ROUND_DELAY_MS = 0L
 }

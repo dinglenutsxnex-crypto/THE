@@ -91,16 +91,6 @@ class OverlayService : Service() {
     private var duelHijackWaiting      = false
     private var duelHijackLossWaiting  = false
     private var infiniteCoinWaiting    = false
-    /** False = 1x, true = 2x. In-memory like the other run flags; the loop it drives also lives
-     *  in the service, so both reset together when the service does. */
-    private var coinSpeed2x            = false
-
-    /**
-     * Gap between rounds. 1x keeps a deliberate pause; 2x starts the next duel the moment the
-     * previous finish is on the wire. Neither value includes the old 300ms pre-finish sleep,
-     * which is gone for all runs — it was pure added latency on every duel.
-     */
-    private fun coinRoundDelay(): Long = DuelTiming.coinRoundDelayMs(coinSpeed2x)
 
     private fun startInfiniteCoin(view: View) {
         val vpn = TrafficVpnService.instance
@@ -110,12 +100,12 @@ class OverlayService : Service() {
         }
         infiniteCoinWaiting = true
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        vpn.runInfiniteCoin({ status ->
+        vpn.runInfiniteCoin { status ->
             mainHandler.post {
                 val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
                 overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
             }
-        }, coinRoundDelay())
+        }
     }
 
     private var battleHijackWaiting    = false
@@ -1034,24 +1024,15 @@ class OverlayService : Service() {
             }
         }
 
-        view.findViewById<Switch>(R.id.sw_infinite_coin)?.setOnCheckedChangeListener { _, isChecked ->
-            val vpn = TrafficVpnService.instance
-            if (vpn == null) {
-                setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
-                return@setOnCheckedChangeListener
-            }
-            if (isChecked) {
-                startInfiniteCoin(view)
-            } else {
-                vpn.cancelInfiniteCoin()
-                infiniteCoinWaiting = false
-                updateInfiniteCoinUi(view)
-            }
+        // Same reason as the battle-hijack toggle below: the loop lives in the VPN service
+        // and outlives the overlay. Restore it from the real state, or reopening the panel
+        // shows "off" while duels are still being played, with no way to stop them.
+        updateInfiniteCoinUi(view)
+        if (infiniteCoinWaiting) {
+            // The panel reopened on a live run: give the switch a status line to sit above,
+            // as the battle hijack does, instead of an unexplained "on".
+            setInfiniteCoinStatus(view, "running…", terminal = false)
         }
-
-        // 1x/2x speed. The button is the only control for it, so it must be hooked here; the
-        // switch above reads coinSpeed2x when it starts a run.
-        hookCoinSpeedButton(view)
 
         // Restore whatever the user last typed so closing/reopening the overlay or
         // restarting the service does not clear the field, and keep it saved as they edit.
@@ -1315,57 +1296,59 @@ class OverlayService : Service() {
     }
 
     /**
-     * Shows the current speed on the button. Kept as a label rather than a Switch because the
-     * value is a choice of two, not an on/off, and the two states have to be readable at a glance
-     * while the run is going.
+     * The on/off listener for the Infinite Coin loop. Turning it off cancels, turning it on
+     * starts. The switch is the user's control, so the state-restoring paths detach this
+     * listener before setting `isChecked` and reattach it after, or the restore would look like
+     * a tap and start or stop a run.
      */
-    private fun hookCoinSpeedButton(view: View) {
-        val btn = view.findViewById<TextView>(R.id.btn_coin_speed) ?: return
-        btn.setOnClickListener {
-            coinSpeed2x = !coinSpeed2x
-            renderCoinSpeed(view)
-            // A run already in progress keeps its own delay; the new value applies to the next
-            // run, which is what the status line says so the user is not misled.
-            if (infiniteCoinWaiting) {
-                setInfiniteCoinStatus(
-                    view,
-                    "Speed set to ${if (coinSpeed2x) "2x" else "1x"} — applies to the next run",
-                    terminal = false
-                )
+    private fun hookInfiniteCoinSwitch(view: View) {
+        view.findViewById<Switch>(R.id.sw_infinite_coin)?.setOnCheckedChangeListener { _, isChecked ->
+            val vpn = TrafficVpnService.instance
+            if (vpn == null) {
+                setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
+                return@setOnCheckedChangeListener
+            }
+            if (isChecked) {
+                startInfiniteCoin(view)
+            } else {
+                vpn.cancelInfiniteCoin()
+                infiniteCoinWaiting = false
+                view.findViewById<TextView>(R.id.tv_infinite_coin_status)?.visibility = View.GONE
             }
         }
-        renderCoinSpeed(view)
     }
 
-    private fun renderCoinSpeed(view: View) {
-        view.findViewById<TextView>(R.id.btn_coin_speed)?.apply {
-            text = if (coinSpeed2x) "2x" else "1x"
-            setTextColor(Color.parseColor(if (coinSpeed2x) "#FFF0883E" else "#FF58A6FF"))
-        }
-    }
-
+    /**
+     * Drives the switch and status line from the service's real run state rather than a local
+     * flag. The loop lives in the VPN service and outlives the overlay, so a panel that reopened
+     * mid-run used to show the toggle off while duels were still playing — and the only way to
+     * get a working off was to toggle on and then off again. Reading the live state makes the
+     * toggle remember where it really is.
+     */
     private fun updateInfiniteCoinUi(view: View) {
+        renderInfiniteCoinState(view, TrafficVpnService.instance?.isInfiniteCoinRunning() == true, keepStatus = false)
+    }
+
+    /**
+     * [running] is passed in rather than read here because the two callers know better than a
+     * live query can. On a terminal status the coroutine has not returned yet — it emits
+     * "STOPPED" and only then finishes — so asking the service would still say "running" and
+     * flip the toggle back on. A terminal status already means this run is done, and the
+     * run-gate guarantees it is not a stale one, so off is the correct answer there.
+     *
+     * [keepStatus] is set on the terminal path so the final "STOPPED"/"ERROR" line stays on
+     * screen to be read; the restore path clears it so a reopened panel does not show a status
+     * from a run that already ended.
+     */
+    private fun renderInfiniteCoinState(view: View, running: Boolean, keepStatus: Boolean) {
+        infiniteCoinWaiting = running
         val sw = view.findViewById<Switch>(R.id.sw_infinite_coin) ?: return
-        if (!infiniteCoinWaiting) {
-            sw.setOnCheckedChangeListener(null)
-            sw.isChecked = false
+        sw.setOnCheckedChangeListener(null)
+        sw.isChecked = running
+        hookInfiniteCoinSwitch(view)
+        if (!running && !keepStatus) {
             view.findViewById<TextView>(R.id.tv_infinite_coin_status)?.visibility = View.GONE
-            sw.setOnCheckedChangeListener { _, isChecked ->
-                val vpn = TrafficVpnService.instance
-                if (vpn == null) {
-                    setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
-                    return@setOnCheckedChangeListener
-                }
-                if (isChecked) {
-                    startInfiniteCoin(view)
-                } else {
-                    vpn.cancelInfiniteCoin()
-                    infiniteCoinWaiting = false
-                    updateInfiniteCoinUi(view)
-                }
-            }
         }
-        renderCoinSpeed(view)
     }
 
     private fun setInfiniteCoinStatus(view: View, status: String, terminal: Boolean) {
@@ -1379,8 +1362,8 @@ class OverlayService : Service() {
             visibility = View.VISIBLE
         }
         if (terminal) {
-            infiniteCoinWaiting = false
-            updateInfiniteCoinUi(view)
+            // Off directly rather than via a live query: see renderInfiniteCoinState.
+            renderInfiniteCoinState(view, running = false, keepStatus = true)
             if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_infinite_coin)
         }
     }
