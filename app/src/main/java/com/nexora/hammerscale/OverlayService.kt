@@ -12,7 +12,10 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.Process
 import android.util.TypedValue
 import android.view.*
 import android.view.inputmethod.InputMethodManager
@@ -777,6 +780,11 @@ class OverlayService : Service() {
             applyMode(view)
         }
 
+        view.findViewById<TextView>(R.id.menu_force_close).setOnClickListener {
+            menuPanel.visibility = View.GONE
+            forceCloseApp()
+        }
+
         val tabLogs   = view.findViewById<TextView>(R.id.tab_logs)
         val tabEvents = view.findViewById<TextView>(R.id.tab_events)
         val panelEvents = view.findViewById<View>(R.id.panel_events)
@@ -1049,6 +1057,22 @@ class OverlayService : Service() {
         overlayView = null
         overlayParams = null
         lastContentHeight = -1
+    }
+
+    // Force Close takes HAMMERSCALE down from the overlay: the VPN stops capturing and the
+    // process is killed outright, so the app is gone rather than merely hidden behind the
+    // game. The services are stopped first so the VPN interface, notification and overlay
+    // windows are released cleanly; the kill then sweeps up anything still alive. There is a
+    // short delay so those stop paths get to run before the process disappears under them.
+    private fun forceCloseApp() {
+        removeOverlay()
+        removeMini()
+        TrafficVpnService.instance?.stopVpn()
+        try { stopForeground(true) } catch (_: Exception) {}
+        stopSelf()
+        Handler(Looper.getMainLooper()).postDelayed({
+            Process.killProcess(Process.myPid())
+        }, 250)
     }
 
     private fun showMini() {

@@ -79,4 +79,21 @@ class OverlayLayoutTest {
         val row = elementWithId("row_battle_hijack_input")!!
         assertEquals("gone", row.getAttributeNS(ns, "visibility"))
     }
+
+    @Test
+    fun `force close item sits in the menu panel below the mode toggle`() {
+        val item = elementWithId("menu_force_close")
+        assertTrue("force close item missing", item != null)
+
+        val ids = ancestorsOf(item!!).map { it.getAttributeNS(ns, "id") }
+        assertTrue("force close item is not in the menu panel", "@+id/panel_menu" in ids)
+
+        // The menu is built in order, so the destructive action has to come after the
+        // everyday ones or it ends up as the first thing a tap can hit.
+        val order = allElements()
+            .filter { it.getAttributeNS(ns, "id") == "@+id/menu_mode_toggle" ||
+                      it.getAttributeNS(ns, "id") == "@+id/menu_force_close" }
+            .map { it.getAttributeNS(ns, "id") }
+        assertEquals(listOf("@+id/menu_mode_toggle", "@+id/menu_force_close"), order)
+    }
 }

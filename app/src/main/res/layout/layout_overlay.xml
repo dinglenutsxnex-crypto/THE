@@ -812,6 +812,25 @@
             android:focusable="true"
             android:background="?android:attr/selectableItemBackground" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#FF30363D" />
+
+        <TextView
+            android:id="@+id/menu_force_close"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="   FORCE CLOSE"
+            android:textColor="#FFFF4444"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground" />
+
     </LinearLayout>
 
 </FrameLayout>
