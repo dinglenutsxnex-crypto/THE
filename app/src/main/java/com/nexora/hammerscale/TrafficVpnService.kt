@@ -37,6 +37,7 @@ class TrafficVpnService : VpnService() {
     private var captureJob: Job? = null
     private var duelHijackJob: Job? = null
     private var duelHijackLossJob: Job? = null
+    private var infiniteCoinJob: Job? = null
     private var battleHijackJob: Job? = null
     private val battleHijackGate = HijackRunGate()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -220,60 +221,25 @@ class TrafficVpnService : VpnService() {
         duelHijackJob?.cancel()
 
         val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
-        val vm = AppState.viewModel
 
         duelHijackJob = scope.launch {
             var round = 0
             var wins  = 0
-
-            var blobDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
-            handler.armDuelHijack { _, blob ->
-                if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
-            }
 
             onStatus("Hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
 
-                val startCounter = vm.nextInjectCounter
-                val startResult  = injectDirect(PacketInjector.buildBrawlerStart(startCounter))
-                Log.d("HammerDuel", "brawler_start r$round counter=$startCounter -> $startResult")
-
-                if (startResult.startsWith("FAIL")) {
-                    onStatus("ERROR: Inject failed: $startResult")
-                    break
-                }
-                onStatus("[Round $round | $wins wins] waiting for server...")
-
-                val enemyBlob = try {
-                    withTimeout(15_000) { blobDeferred.await() }
-                } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                    handler.disarmDuelHijack()
-                    onStatus("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
-                    break
-                }
-
-                Log.d("HammerDuel", "r$round: got blob ${enemyBlob.size}B")
-                delay(300)
-
-                val finishCounter = vm.nextInjectCounter
-                val finishResult  = injectDirect(PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter))
-                Log.d("HammerDuel", "brawler_finish r$round counter=$finishCounter -> $finishResult")
-
-                if (finishResult.startsWith("FAIL")) {
-                    onStatus("ERROR: Inject failed: $finishResult")
-                    break
-                }
+                val done = runOneDuelRound(
+                    handler, win = true, logTag = "HammerDuel",
+                    onWaiting = { onStatus("[Round $round | $wins wins] waiting for server...") },
+                    onError   = { onStatus(it) }
+                )
+                if (!done) break
 
                 wins++
                 onStatus("[Round $round | $wins wins] WIN")
-
-                blobDeferred = kotlinx.coroutines.CompletableDeferred()
-                handler.armDuelHijack { _, blob ->
-                    if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
-                }
-
                 delay(1_000)
             }
 
@@ -293,60 +259,25 @@ class TrafficVpnService : VpnService() {
         duelHijackLossJob?.cancel()
 
         val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
-        val vm = AppState.viewModel
 
         duelHijackLossJob = scope.launch {
             var round = 0
             var losses = 0
-
-            var blobDeferred = kotlinx.coroutines.CompletableDeferred<ByteArray>()
-            handler.armDuelHijack { _, blob ->
-                if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
-            }
 
             onStatus("Loss hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
 
-                val startCounter = vm.nextInjectCounter
-                val startResult  = injectDirect(PacketInjector.buildBrawlerStart(startCounter))
-                Log.d("HammerDuel", "loss brawler_start r$round counter=$startCounter → $startResult")
-
-                if (startResult.startsWith("FAIL")) {
-                    onStatus("ERROR: Inject failed: $startResult")
-                    break
-                }
-                onStatus("[Round $round | $losses losses] waiting for server...")
-
-                val enemyBlob = try {
-                    withTimeout(15_000) { blobDeferred.await() }
-                } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                    handler.disarmDuelHijack()
-                    onStatus("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
-                    break
-                }
-
-                Log.d("HammerDuel", "loss r$round: got blob ${enemyBlob.size}B")
-                delay(300)
-
-                val finishCounter = vm.nextInjectCounter
-                val finishResult  = injectDirect(PacketInjector.buildBrawlerFinishLoss(enemyBlob, finishCounter))
-                Log.d("HammerDuel", "loss brawler_finish r$round counter=$finishCounter → $finishResult")
-
-                if (finishResult.startsWith("FAIL")) {
-                    onStatus("ERROR: Inject failed: $finishResult")
-                    break
-                }
+                val done = runOneDuelRound(
+                    handler, win = false, logTag = "HammerDuel",
+                    onWaiting = { onStatus("[Round $round | $losses losses] waiting for server...") },
+                    onError   = { onStatus(it) }
+                )
+                if (!done) break
 
                 losses++
                 onStatus("[Round $round | $losses losses] LOSS")
-
-                blobDeferred = kotlinx.coroutines.CompletableDeferred()
-                handler.armDuelHijack { _, blob ->
-                    if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
-                }
-
                 delay(1_000)
             }
 
@@ -360,6 +291,109 @@ class TrafficVpnService : VpnService() {
         duelHijackLossJob?.cancel()
         duelHijackLossJob = null
         tcpHandler?.disarmDuelHijack()
+    }
+
+    /**
+     * Infinite Coin: alternates a won duel with a lost one (win, loss, win, loss...) so the
+     * win/loss ratio stays level instead of climbing, which is what the coin payout responds
+     * to. Both outcomes use the same round runner as the single-outcome hijacks, so the wire
+     * logic cannot drift between the three.
+     */
+    fun runInfiniteCoin(onStatus: (String) -> Unit) {
+        infiniteCoinJob?.cancel()
+
+        val handler = tcpHandler ?: run { onStatus("ERROR: VPN not running"); return }
+
+        infiniteCoinJob = scope.launch {
+            val alternation = DuelAlternation()
+            var wins   = 0
+            var losses = 0
+
+            onStatus("Infinite Coin armed — alternating win/loss")
+
+            while (isActive) {
+                // Odd rounds win, even rounds lose: the first duel of the run is a win.
+                val win = alternation.nextDuelWins()
+                val round = alternation.rounds
+
+                val done = runOneDuelRound(
+                    handler, win = win, logTag = "HammerCoin",
+                    onWaiting = { onStatus("[Round $round | W$wins L$losses] waiting for server...") },
+                    onError   = { onStatus(it) }
+                )
+                if (!done) break
+
+                if (win) wins++ else losses++
+                onStatus("[Round $round | W$wins L$losses] ${if (win) "WIN" else "LOSS"}")
+                delay(1_000)
+            }
+
+            handler.disarmDuelHijack()
+            onStatus("STOPPED: $wins wins, $losses losses in ${alternation.rounds} rounds")
+            Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${alternation.rounds}")
+        }
+    }
+
+    fun cancelInfiniteCoin() {
+        infiniteCoinJob?.cancel()
+        infiniteCoinJob = null
+        tcpHandler?.disarmDuelHijack()
+    }
+
+    /**
+     * Plays one duel round end to end: inject `brawler_start`, wait up to 15s for the enemy
+     * blob the server replies with, then inject `brawler_finish` carrying [win] as the
+     * outcome. Returns true once the finish was injected; false means the round could not
+     * be played and the reason has already been reported through [onError], so the caller
+     * should end its run.
+     */
+    private suspend fun runOneDuelRound(
+        handler: TcpHandler,
+        win: Boolean,
+        logTag: String,
+        onWaiting: () -> Unit,
+        onError: (String) -> Unit
+    ): Boolean {
+        val blobDeferred = CompletableDeferred<ByteArray>()
+        handler.armDuelHijack { _, blob ->
+            if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
+        }
+
+        val startCounter = viewModel.nextInjectCounter
+        val startResult  = injectDirect(PacketInjector.buildBrawlerStart(startCounter))
+        Log.d(logTag, "brawler_start counter=$startCounter -> $startResult")
+
+        if (startResult.startsWith("FAIL")) {
+            handler.disarmDuelHijack()
+            onError("ERROR: Inject failed: $startResult")
+            return false
+        }
+        onWaiting()
+
+        val enemyBlob = try {
+            withTimeout(15_000) { blobDeferred.await() }
+        } catch (_: TimeoutCancellationException) {
+            handler.disarmDuelHijack()
+            onError("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
+            return false
+        }
+
+        Log.d(logTag, "got blob ${enemyBlob.size}B")
+        delay(300)
+
+        val finishCounter = viewModel.nextInjectCounter
+        val finishResult  = injectDirect(
+            if (win) PacketInjector.buildBrawlerFinishWin(enemyBlob, finishCounter)
+            else     PacketInjector.buildBrawlerFinishLoss(enemyBlob, finishCounter)
+        )
+        Log.d(logTag, "brawler_finish ${if (win) "win" else "loss"} counter=$finishCounter -> $finishResult")
+
+        if (finishResult.startsWith("FAIL")) {
+            handler.disarmDuelHijack()
+            onError("ERROR: Inject failed: $finishResult")
+            return false
+        }
+        return true
     }
 
     @Deprecated("use cancelDuelHijack()")

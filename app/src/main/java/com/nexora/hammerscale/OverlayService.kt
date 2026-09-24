@@ -89,6 +89,7 @@ class OverlayService : Service() {
     private var userBrawlerEnabled     = false
     private var duelHijackWaiting      = false
     private var duelHijackLossWaiting  = false
+    private var infiniteCoinWaiting    = false
     private var battleHijackWaiting    = false
     private var battleHijackId         = ""
     private var overlayParams: WindowManager.LayoutParams? = null
@@ -859,6 +860,7 @@ class OverlayService : Service() {
         val swBrawler    = view.findViewById<Switch>(R.id.sw_brawler)
         val swDuelHijack     = view.findViewById<Switch>(R.id.sw_duel_hijack)
         val swDuelHijackLoss = view.findViewById<Switch>(R.id.sw_duel_hijack_loss)
+        val swInfiniteCoin   = view.findViewById<Switch>(R.id.sw_infinite_coin)
         val swBattleHijack   = view.findViewById<Switch>(R.id.sw_battle_hijack)
 
         styleSwitch(swEvent)
@@ -867,6 +869,7 @@ class OverlayService : Service() {
         styleSwitch(swBrawler)
         styleSwitch(swDuelHijack)
         styleSwitch(swDuelHijackLoss)
+        styleSwitch(swInfiniteCoin)
         styleSwitch(swBattleHijack)
 
         swEvent.isChecked   = userEventBattleEnabled
@@ -943,6 +946,9 @@ class OverlayService : Service() {
         view.findViewById<View>(R.id.row_brawler)?.setOnClickListener {
             swBrawler.isChecked = !swBrawler.isChecked
         }
+        view.findViewById<View>(R.id.row_infinite_coin)?.setOnClickListener {
+            swInfiniteCoin.isChecked = !swInfiniteCoin.isChecked
+        }
 
         view.findViewById<TextView>(R.id.btn_brawler_win)?.setOnClickListener {
             if (TrafficVpnService.instance == null) {
@@ -997,6 +1003,28 @@ class OverlayService : Service() {
                 vpn.cancelDuelHijackLoss()
                 duelHijackLossWaiting = false
                 updateDuelHijackLossUi(view)
+            }
+        }
+
+        view.findViewById<Switch>(R.id.sw_infinite_coin)?.setOnCheckedChangeListener { _, isChecked ->
+            val vpn = TrafficVpnService.instance
+            if (vpn == null) {
+                setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
+                return@setOnCheckedChangeListener
+            }
+            if (isChecked) {
+                infiniteCoinWaiting = true
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                vpn.runInfiniteCoin { status ->
+                    mainHandler.post {
+                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                        overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
+                    }
+                }
+            } else {
+                vpn.cancelInfiniteCoin()
+                infiniteCoinWaiting = false
+                updateInfiniteCoinUi(view)
             }
         }
 
@@ -1261,6 +1289,53 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updateInfiniteCoinUi(view: View) {
+        val sw = view.findViewById<Switch>(R.id.sw_infinite_coin) ?: return
+        if (!infiniteCoinWaiting) {
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = false
+            view.findViewById<TextView>(R.id.tv_infinite_coin_status)?.visibility = View.GONE
+            sw.setOnCheckedChangeListener { _, isChecked ->
+                val vpn = TrafficVpnService.instance
+                if (vpn == null) {
+                    setInfiniteCoinStatus(view, "ERROR: VPN not running", terminal = true)
+                    return@setOnCheckedChangeListener
+                }
+                if (isChecked) {
+                    infiniteCoinWaiting = true
+                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                    vpn.runInfiniteCoin { status ->
+                        mainHandler.post {
+                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                            overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
+                        }
+                    }
+                } else {
+                    vpn.cancelInfiniteCoin()
+                    infiniteCoinWaiting = false
+                    updateInfiniteCoinUi(view)
+                }
+            }
+        }
+    }
+
+    private fun setInfiniteCoinStatus(view: View, status: String, terminal: Boolean) {
+        view.findViewById<TextView>(R.id.tv_infinite_coin_status)?.apply {
+            text = status
+            setTextColor(when {
+                status.startsWith("ERROR") || status.startsWith("TIMEOUT") -> Color.parseColor("#FFFF4444")
+                status.endsWith("WIN") || status.endsWith("LOSS")           -> Color.parseColor("#FF3FB950")
+                else                                                        -> Color.parseColor("#FFD29922")
+            })
+            visibility = View.VISIBLE
+        }
+        if (terminal) {
+            infiniteCoinWaiting = false
+            updateInfiniteCoinUi(view)
+            if (status.startsWith("STOPPED") && isUserMode) flashLabelGreen(R.id.tv_label_infinite_coin)
+        }
+    }
+
     private fun startBattleHijack(view: View) {
         val vpn = TrafficVpnService.instance
         if (vpn == null) {
@@ -1395,6 +1470,7 @@ class OverlayService : Service() {
         pendingBrawlerArmJob?.cancel()
         if (duelHijackWaiting) TrafficVpnService.instance?.cancelDuelHijack()
         if (duelHijackLossWaiting) TrafficVpnService.instance?.cancelDuelHijackLoss()
+        if (infiniteCoinWaiting) TrafficVpnService.instance?.cancelInfiniteCoin()
         if (battleHijackWaiting) TrafficVpnService.instance?.cancelBattleHijack()
         serviceScope.cancel()
         removeOverlay()

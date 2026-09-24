@@ -81,6 +81,38 @@ class OverlayLayoutTest {
     }
 
     @Test
+    fun `infinite coin has a toggle reachable inside the user mode panel`() {
+        val sw = elementWithId("sw_infinite_coin")
+        assertTrue("infinite coin toggle missing", sw != null)
+
+        // Same reachability contract as the duel hijacks: under the scrollable panel, or the
+        // row exists but no tap can ever get to it.
+        val ids = ancestorsOf(sw!!).map { it.getAttributeNS(ns, "id") }
+        assertTrue("toggle is not under panel_user_mode", "@+id/panel_user_mode" in ids)
+        assertTrue("toggle is not under overlay_scroll_content", "@+id/overlay_scroll_content" in ids)
+
+        val row = elementWithId("row_infinite_coin")
+        assertTrue("infinite coin row missing", row != null)
+        assertTrue("toggle is not inside its row", "@+id/row_infinite_coin" in ancestorsOf(sw).map { it.getAttributeNS(ns, "id") })
+    }
+
+    @Test
+    fun `infinite coin sits with the other duel toggles`() {
+        // It is a third duel mode, so it belongs between the loss hijack and the battle
+        // hijack rather than off on its own where it would be missed.
+        val order = allElements()
+            .map { it.getAttributeNS(ns, "id") }
+            .filter {
+                it == "@+id/row_duel_hijack" || it == "@+id/row_duel_hijack_loss" ||
+                it == "@+id/row_infinite_coin" || it == "@+id/row_battle_hijack"
+            }
+        assertEquals(
+            listOf("@+id/row_duel_hijack", "@+id/row_duel_hijack_loss", "@+id/row_infinite_coin", "@+id/row_battle_hijack"),
+            order
+        )
+    }
+
+    @Test
     fun `force close item sits in the menu panel below the mode toggle`() {
         val item = elementWithId("menu_force_close")
         assertTrue("force close item missing", item != null)
