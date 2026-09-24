@@ -53,6 +53,19 @@ content and scrolling tall content. It re-runs on content layout changes and aft
 since either can change how much room is left. Any new row added to the panel needs no
 special handling, but do not reintroduce a fixed window height.
 
+### Duel modes
+Three toggles in the user-mode panel drive the same brawler loop: Duel Hijack wins every
+duel, Duel Hijack Loss loses every duel, and Infinite Coin alternates win/loss to hold the
+win/loss ratio level. All three run their rounds through `runOneDuelRound`; the per-mode
+loops only choose the outcome and the wording, so the packet sequence cannot drift between
+them. The Infinite Coin ordering lives in `DuelAlternation` rather than as a modulo in the
+loop, because an off-by-one there still "works" but no longer holds the ratio.
+
+Each toggle is triplicated: a listener in `setupOverlay`, a `updateXUi` restore path, and a
+`setXStatus` colour rule. `updateXUi` exists because a run lives in the VPN service and
+outlives the overlay, so reopening the panel has to restore the switch from the waiting
+flag. `onDestroy` cancels whichever run the flags say is live.
+
 ### Force close
 The menu's FORCE CLOSE kills the HAMMERSCALE process from the overlay. It stops the VPN
 first so the tun interface, notification and overlay windows are released cleanly, then
