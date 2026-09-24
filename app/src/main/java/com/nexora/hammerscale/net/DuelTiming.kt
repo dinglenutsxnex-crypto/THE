@@ -32,4 +32,15 @@ object DuelTiming {
 
     /** Gap after a completed Infinite Coin round. Effectively none. */
     const val COIN_ROUND_DELAY_MS = 0L
+
+    /**
+     * How long to wait for the server's reply to a duel's start before giving up on that
+     * attempt. The reply is the enemy blob the client needs to build the finish, so without it
+     * the round cannot proceed — but the run should not end either. On expiry the round is
+     * retried from the start, so this is also the worst-case stall before a retry begins.
+     *
+     * Was 15s with no retry: a slow or dropped reply ended the whole run, which is why the
+     * coin and duel loops appeared to stop on their own mid-session.
+     */
+    const val REPLY_TIMEOUT_MS = 2_000L
 }

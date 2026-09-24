@@ -31,6 +31,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.nexora.hammerscale.model.ConnectionViewModel
 import com.nexora.hammerscale.net.HijackTally
 import com.nexora.hammerscale.net.DuelTiming
+import com.nexora.hammerscale.net.RunStatus
 import com.nexora.hammerscale.model.GameEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,7 @@ class OverlayService : Service() {
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         vpn.runInfiniteCoin { status ->
             mainHandler.post {
-                val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                val terminal = RunStatus.isTerminal(status)
                 overlayView?.let { v -> setInfiniteCoinStatus(v, status, terminal) }
             }
         }
@@ -991,7 +992,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijack { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                        val terminal = RunStatus.isTerminal(status)
                         overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                     }
                 }
@@ -1013,7 +1014,7 @@ class OverlayService : Service() {
                 val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 vpn.runDuelHijackLoss { status ->
                     mainHandler.post {
-                        val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                        val terminal = RunStatus.isTerminal(status)
                         overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                     }
                 }
@@ -1218,7 +1219,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijack { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                            val terminal = RunStatus.isTerminal(status)
                             overlayView?.let { v -> setDuelHijackStatus(v, status, terminal) }
                         }
                     }
@@ -1265,7 +1266,7 @@ class OverlayService : Service() {
                     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     vpn.runDuelHijackLoss { status ->
                         mainHandler.post {
-                            val terminal = status.startsWith("STOPPED") || status.startsWith("ERROR") || status.startsWith("TIMEOUT")
+                            val terminal = RunStatus.isTerminal(status)
                             overlayView?.let { v -> setDuelHijackLossStatus(v, status, terminal) }
                         }
                     }

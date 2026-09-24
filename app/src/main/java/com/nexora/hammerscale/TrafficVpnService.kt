@@ -229,18 +229,29 @@ class TrafficVpnService : VpnService() {
         duelHijackJob = scope.launch {
             var round = 0
             var wins  = 0
+            var retries = 0
 
             onStatus("Hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
 
-                val done = runOneDuelRound(
+                when (runOneDuelRound(
                     handler, win = true, logTag = "HammerDuel",
                     onWaiting = { onStatus("[Round $round | $wins wins] waiting for server...") },
                     onError   = { onStatus(it) }
-                )
-                if (!done) break
+                )) {
+                    DuelRoundOutcome.Ok -> Unit
+                    DuelRoundOutcome.Retry -> {
+                        // Attempt-level failure, not a run-level one: give back the round
+                        // number so the retry is still "round $round" to the user, and go
+                        // round again. Counters keep advancing; they are never rewound.
+                        retries++
+                        round--
+                        continue
+                    }
+                    DuelRoundOutcome.Fatal -> break
+                }
 
                 wins++
                 onStatus("[Round $round | $wins wins] WIN")
@@ -248,8 +259,8 @@ class TrafficVpnService : VpnService() {
             }
 
             handler.disarmDuelHijack()
-            onStatus("STOPPED: $wins wins in $round rounds")
-            Log.d("HammerDuel", "Hijack stopped — wins=$wins rounds=$round")
+            onStatus("STOPPED: $wins wins in $round rounds" + if (retries > 0) " ($retries retries)" else "")
+            Log.d("HammerDuel", "Hijack stopped — wins=$wins rounds=$round retries=$retries")
         }
     }
 
@@ -267,18 +278,26 @@ class TrafficVpnService : VpnService() {
         duelHijackLossJob = scope.launch {
             var round = 0
             var losses = 0
+            var retries = 0
 
             onStatus("Loss hijack armed — starting brawler loop")
 
             while (isActive) {
                 round++
 
-                val done = runOneDuelRound(
+                when (runOneDuelRound(
                     handler, win = false, logTag = "HammerDuel",
                     onWaiting = { onStatus("[Round $round | $losses losses] waiting for server...") },
                     onError   = { onStatus(it) }
-                )
-                if (!done) break
+                )) {
+                    DuelRoundOutcome.Ok -> Unit
+                    DuelRoundOutcome.Retry -> {
+                        retries++
+                        round--
+                        continue
+                    }
+                    DuelRoundOutcome.Fatal -> break
+                }
 
                 losses++
                 onStatus("[Round $round | $losses losses] LOSS")
@@ -286,8 +305,8 @@ class TrafficVpnService : VpnService() {
             }
 
             handler.disarmDuelHijack()
-            onStatus("STOPPED: $losses losses in $round rounds")
-            Log.d("HammerDuel", "Loss hijack stopped — losses=$losses rounds=$round")
+            onStatus("STOPPED: $losses losses in $round rounds" + if (retries > 0) " ($retries retries)" else "")
+            Log.d("HammerDuel", "Loss hijack stopped — losses=$losses rounds=$round retries=$retries")
         }
     }
 
@@ -322,6 +341,7 @@ class TrafficVpnService : VpnService() {
             val alternation = DuelAlternation()
             var wins   = 0
             var losses = 0
+            var retries = 0
 
             // The overlay derives "terminal" from the status prefix, so only the text goes out.
             fun emit(status: String) {
@@ -334,16 +354,24 @@ class TrafficVpnService : VpnService() {
                 val win = alternation.nextDuelWins()
                 val round = alternation.rounds
 
-                val done = runOneDuelRound(
+                when (runOneDuelRound(
                     handler, win = win, logTag = "HammerCoin",
                     onWaiting = { emit("[Round $round | W$wins L$losses] waiting for server...") },
                     onError   = { emit(it) }
-                )
-                if (!done) {
-                    // Give back the outcome we reserved for a round that never played, or the
-                    // next real duel would inherit the wrong side of the alternation.
-                    alternation.rewind()
-                    break
+                )) {
+                    DuelRoundOutcome.Ok -> Unit
+                    DuelRoundOutcome.Retry -> {
+                        // No reply means this attempt is void, so give back the alternation
+                        // slot and try the same outcome again. Only the retry counter moves;
+                        // the packet counters keep advancing and are never rewound.
+                        alternation.rewind()
+                        retries++
+                        continue
+                    }
+                    DuelRoundOutcome.Fatal -> {
+                        alternation.rewind()
+                        break
+                    }
                 }
 
                 if (win) wins++ else losses++
@@ -354,8 +382,9 @@ class TrafficVpnService : VpnService() {
             // Only the live run may tear the hook down: a superseded run's teardown would
             // disarm the hook its replacement has just armed.
             if (run.isCurrent) handler.disarmDuelHijack()
-            emit("STOPPED: $wins wins, $losses losses in ${wins + losses} rounds")
-            Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${wins + losses}")
+            emit("STOPPED: $wins wins, $losses losses in ${wins + losses} rounds" +
+                if (retries > 0) " ($retries retries)" else "")
+            Log.d("HammerCoin", "Infinite Coin stopped — wins=$wins losses=$losses rounds=${wins + losses} retries=$retries")
         }
     }
 
@@ -373,16 +402,39 @@ class TrafficVpnService : VpnService() {
     }
 
     /**
-     * Plays one duel round end to end: inject `brawler_start`, wait up to 15s for the enemy
-     * blob the server replies with, then inject `brawler_finish` carrying [win] as the
-     * outcome. Returns true once the finish was injected; false means the round could not
-     * be played and the reason has already been reported through [onError], so the caller
-     * should end its run.
+     * What happened to one attempted duel round.
+     *
+     * [Retry] exists so a missing reply does not end the run: the caller starts the round again
+     * with the same outcome and the same counters. [Fatal] is a start/finish the injector could
+     * not even send, which retrying would just repeat, so the run ends.
+     */
+    private sealed interface DuelRoundOutcome {
+        data object Ok : DuelRoundOutcome
+        data object Retry : DuelRoundOutcome
+        data object Fatal : DuelRoundOutcome
+    }
+
+    /**
+     * Plays one duel round end to end: inject `brawler_start`, wait up to [DuelTiming.REPLY_TIMEOUT_MS]
+     * for the enemy blob the server replies with, then inject `brawler_finish` carrying [win] as the
+     * outcome.
+     *
+     * The wait is short and its expiry is *not* fatal. A reply that never comes means this attempt
+     * is over, not that the run is: the caller restarts the round. The old 15s timeout ended the
+     * whole run instead, which is what made the coin and duel loops look like they had stopped by
+     * themselves.
+     *
+     * Counters are never reset — each retry injects with the next counter in the same shared
+     * sequence, so the server sees a continuous stream rather than a replayed one.
+     *
+     * Known limitation: a reply that arrives *after* the timeout but during the retry's wait is
+     * indistinguishable from the retry's own reply, so it would be used as that round's blob. The
+     * finish is then built from a stale blob and is normally rejected and retried, so this costs a
+     * round rather than corrupting the run, but it is not correlated away.
      *
      * [preFinishDelayMs] is the only artificial pause in the round. It used to be a flat 300ms,
      * paid on every duel; the reply already tells us the server is done with the start, so
-     * waiting further only added latency. It is now 50ms — enough to separate the finish from
-     * the start reply on the wire without meaningfully delaying the round.
+     * waiting further only added latency.
      */
     private suspend fun runOneDuelRound(
         handler: TcpHandler,
@@ -391,7 +443,7 @@ class TrafficVpnService : VpnService() {
         onWaiting: () -> Unit,
         onError: (String) -> Unit,
         preFinishDelayMs: Long = PRE_FINISH_DELAY_MS
-    ): Boolean {
+    ): DuelRoundOutcome {
         val blobDeferred = CompletableDeferred<ByteArray>()
         handler.armDuelHijack { _, blob ->
             if (!blobDeferred.isCompleted) blobDeferred.complete(blob)
@@ -404,16 +456,17 @@ class TrafficVpnService : VpnService() {
         if (startResult.startsWith("FAIL")) {
             handler.disarmDuelHijack()
             onError("ERROR: Inject failed: $startResult")
-            return false
+            return DuelRoundOutcome.Fatal
         }
         onWaiting()
 
         val enemyBlob = try {
-            withTimeout(15_000) { blobDeferred.await() }
+            withTimeout(DuelTiming.REPLY_TIMEOUT_MS) { blobDeferred.await() }
         } catch (_: TimeoutCancellationException) {
             handler.disarmDuelHijack()
-            onError("TIMEOUT: No reply in 15s — quota hit or disconnected. Tap again when ready.")
-            return false
+            // Non-terminal on purpose: the caller reports it and starts a new attempt.
+            onError("No reply in ${DuelTiming.REPLY_TIMEOUT_MS / 1000}s — restarting round")
+            return DuelRoundOutcome.Retry
         }
 
         Log.d(logTag, "got blob ${enemyBlob.size}B")
@@ -429,9 +482,9 @@ class TrafficVpnService : VpnService() {
         if (finishResult.startsWith("FAIL")) {
             handler.disarmDuelHijack()
             onError("ERROR: Inject failed: $finishResult")
-            return false
+            return DuelRoundOutcome.Fatal
         }
-        return true
+        return DuelRoundOutcome.Ok
     }
 
     @Deprecated("use cancelDuelHijack()")

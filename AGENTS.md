@@ -84,6 +84,28 @@ again. It carries its own `HijackRunGate` for the same reason the battle hijack 
 cancelled coroutine still emits its closing "STOPPED", so without the gate a dying run would
 clear the flag for the run replacing it.
 
+### Reply timeouts and retries
+A duel round needs the enemy blob the server sends back, so it waits `DuelTiming.REPLY_TIMEOUT_MS`
+(2s) for it. That wait expiring is **not** fatal: it means this attempt is void, so the loop
+reports a non-terminal line and starts the round again. `runOneDuelRound` returns
+`Ok`/`Retry`/`Fatal` rather than a boolean for exactly this distinction — a boolean forced
+timeouts and inject failures into the same "end the run" branch, which is why the coin and duel
+loops looked like they stopped by themselves mid-session.
+
+Counters are never rewound on a retry. Each attempt injects with the next counter in the shared
+sequence, so the server sees a continuous stream. Only run *numbering* is given back (the coin
+alternation slot via `rewind`, the duel round number) so the retry is still the same round to
+the user and keeps the same win/loss side.
+
+This relies on the retry status not reading as terminal, and that decision is made from the
+status text. `RunStatus.isTerminal` is the single classifier, in `net/`, so the wording and the
+classification cannot drift apart; `RunStatusTest` fails if "No reply…" ever becomes terminal,
+since that would silently turn the retry into dead code. Fatal inject errors still use the
+ERROR prefix and do end the run.
+
+Battle hijack keeps its own 15s waits per step (see below); those still report through the
+fail counter and retry the cycle.
+
 ### Pacing
 All artificial pauses live in `net/DuelTiming.kt`, not inline in the loops. They are the
 throughput knobs, so they are the constants most likely to drift back up by accident:

@@ -40,4 +40,18 @@ class DuelTimingTest {
             DuelTiming.COIN_ROUND_DELAY_MS <= 50
         )
     }
+
+    @Test
+    fun `reply timeout is short but not zero`() {
+        // Short, so a dropped reply costs a retry rather than a stall; non-zero, because a
+        // zero timeout would fail every round before the server could possibly answer.
+        assertTrue(
+            "reply timeout is ${DuelTiming.REPLY_TIMEOUT_MS}ms — too long for a retry to feel live",
+            DuelTiming.REPLY_TIMEOUT_MS <= 5_000
+        )
+        assertTrue(
+            "reply timeout must leave room for a reply",
+            DuelTiming.REPLY_TIMEOUT_MS >= 500
+        )
+    }
 }
