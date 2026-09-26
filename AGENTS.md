@@ -148,3 +148,14 @@ on the wire from any connection, and the internal value is only bumped by inject
 packets are not counted as observed, so once traffic crosses the injector's internal counter,
 the comparison stalls and counters start colliding (two messages sharing one counter).
 Ordinary gameplay hides this because every non-injected packet advances `observed`.
+
+## Environment / anti-detection
+
+`SecurityModule` (root/Frida/emulator detection) has been removed; the app must run on a
+rooted device, a VM/emulator, and with Frida attached. There is no integrity gate at startup
+anymore, so do not reintroduce a `getDetectedThreats`/`isDeviceCompromised` style check in
+`App.onCreate` or anywhere else - it would kill the process on the exact setups this app is
+meant to run on.
+
+The only remaining `killProcess` is the overlay menu FORCE CLOSE (`OverlayService`), which is
+a user action, not a security check.

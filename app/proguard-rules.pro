@@ -1,14 +1,12 @@
 # HammerScale ProGuard Rules
-# Security and Obfuscation Configuration
+# Obfuscation Configuration
 
 # ======================
 # KEEP RULES - Essential
 # ======================
 
-# Keep SecurityModule class and all its methods
--keep class com.nexora.hammerscale.SecurityModule { *; }
+# Keep Application class
 -keep class com.nexora.hammerscale.App { *; }
--keep class com.nexora.hammerscale.App$SecurityReport { *; }
 
 # Keep native methods
 -keepclasseswithmembernames class * {
@@ -47,16 +45,6 @@
     public static *** v(...);
     public static *** i(...);
     public static *** w(...);
-}
-
-# ======================
-# SECURITY RULES
-# ======================
-
-# Prevent code reflection on sensitive classes
--keepclassmembers class com.nexora.hammerscale.SecurityModule {
-    <fields>;
-    <methods>;
 }
 
 # Keep native library loading
