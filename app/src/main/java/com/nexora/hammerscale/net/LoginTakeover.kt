@@ -17,8 +17,8 @@ import java.security.MessageDigest
  */
 object LoginTakeover {
 
-    const val ACCOUNT_GUID = "a34e422a-6e8a-449e-a48f-099d86a18666" // NGMBDPYE, ch5, lvl 16
-    const val ACCOUNT_SYSID = "d1088610d9fa0bd"
+    const val ACCOUNT_GUID = "238ceffe-a03b-4f86-ab9d-468ce552f332" // NNUFNGAL, ch5 Mumbai, lvl 16
+    const val ACCOUNT_SYSID = "b3a718f76fddf38"
     private const val CERT_HASH_X = "D61109D768EDAA3AD2EFA9EF357BD1AE33D5F0AB"
     private const val APP_ID = "com.nekki.shadowfight3"
     private const val V = "19217"
