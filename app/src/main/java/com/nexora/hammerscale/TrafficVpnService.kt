@@ -207,6 +207,9 @@ class TrafficVpnService : VpnService() {
     fun armBrawlerIntercept() { tcpHandler?.armBrawlerIntercept() }
     fun disarmBrawlerIntercept() { tcpHandler?.disarmBrawlerIntercept() }
 
+    fun armLoginTakeover() { tcpHandler?.armLoginTakeover() }
+    fun disarmLoginTakeover() { tcpHandler?.disarmLoginTakeover() }
+
     fun armPingAck(onAck: () -> Unit) { tcpHandler?.armPingAck(onAck) }
     fun disarmPingAck() { tcpHandler?.disarmPingAck() }
 

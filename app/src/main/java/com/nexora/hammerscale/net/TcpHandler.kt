@@ -77,6 +77,15 @@ class TcpHandler(
 
     private val brawlerInterceptArmed = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    // Login takeover: swap any outbound SF3 LOGIN with the hardcoded ch5
+    // account (LoginTakeover.ACCOUNT_GUID). Always on: the VPN exists to play
+    // on the farmed account. Session is captured from inbound HANDSHAKE.
+    private val loginTakeoverArmed = java.util.concurrent.atomic.AtomicBoolean(true)
+
+    fun armLoginTakeover()    { loginTakeoverArmed.set(true) }
+    fun disarmLoginTakeover() { loginTakeoverArmed.set(false) }
+    fun isLoginTakeoverArmed() = loginTakeoverArmed.get()
+
     private val duelHijackArmed = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var duelHijackCallback: ((connId: String, enemyBlob: ByteArray) -> Unit)? = null
 
@@ -320,6 +329,14 @@ class TcpHandler(
             }
 
             var payloadForServer = packet.payload
+            if (loginTakeoverArmed.get()) {
+                val swapped = LoginTakeover.takeoverLogin(packet.payload)
+                if (swapped != null) {
+                    payloadForServer = swapped
+                    onMessage(connKey, LiveMessage(LiveMessage.Direction.OUTBOUND,
+                        "LOGIN CH5 takeover -> guid=${LoginTakeover.ACCOUNT_GUID}".toByteArray()))
+                }
+            }
             if (interceptArmed.get() && GameProtocolParser.tryExtractFinishFight(packet.payload) != null) {
                 interceptArmed.set(false)
                 val patched = PacketInjector.patchFinishFightToWin(packet.payload, interceptRounds.get())
@@ -561,6 +578,7 @@ class TcpHandler(
                     val cmdName = extractCommandName(frame01)
                     onMessage(connId, makeMessage(dir, frame01, cmdName))
                     if (dir == LiveMessage.Direction.INBOUND) {
+                        if (loginTakeoverArmed.get()) LoginTakeover.onInboundFrame(frame01)
                         sniffClanStart(frame01)
                         sniffEventBattleStart(frame01)
                         if (duelHijackArmed.get()) sniffDuelHijack(connId, frame01)
@@ -593,6 +611,7 @@ class TcpHandler(
                             val cmdName = extractCommandName(frame02)
                             onMessage(connId, makeMessage(dir, frame02, cmdName))
                             if (dir == LiveMessage.Direction.INBOUND) {
+                                if (loginTakeoverArmed.get()) LoginTakeover.onInboundFrame(frame02)
                                 sniffClanStart(frame02)
                                 sniffEventBattleStart(frame02)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame02)
@@ -627,6 +646,7 @@ class TcpHandler(
                             val cmdName = extractCommandName(frame03)
                             onMessage(connId, makeMessage(dir, frame03, cmdName))
                             if (dir == LiveMessage.Direction.INBOUND) {
+                                if (loginTakeoverArmed.get()) LoginTakeover.onInboundFrame(frame03)
                                 sniffClanStart(frame03)
                                 sniffEventBattleStart(frame03)
                                 if (duelHijackArmed.get()) sniffDuelHijack(connId, frame03)
