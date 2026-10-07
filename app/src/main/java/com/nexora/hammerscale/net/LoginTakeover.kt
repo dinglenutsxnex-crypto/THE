@@ -17,13 +17,13 @@ import java.security.MessageDigest
  */
 object LoginTakeover {
 
-    const val ACCOUNT_GUID = "ba053d35-47a6-4a36-9bd0-4e3f11eb01e8" // NKUKMQQZ, ch3 Mumbai, lvl 10, faction sel=3, 100 duels
-    const val ACCOUNT_SYSID = "7b60e82a0c46ae1"
+    const val ACCOUNT_GUID = "4d967851-7aab-4db9-9615-1db06de4f55c" // NUBESZZH, 1.46 Mumbai ch3, faction sel=3
+    const val ACCOUNT_SYSID = "357912e62ecbd13"
     private const val CERT_HASH_X = "D61109D768EDAA3AD2EFA9EF357BD1AE33D5F0AB"
     private const val APP_ID = "com.nekki.shadowfight3"
-    private const val V = "19217"
-    private const val CONFIG_VER = "1.45.0.175.16722-prod"
-    private const val APP_VER = "1.45.5"
+    private const val V = "19221"
+    private const val CONFIG_VER = "1.46.0.10.16731-prod"
+    private const val APP_VER = "1.46.0"
     private const val BNAME =
         "UnityClient_ShadowFight3_UnityClientShadowFight3Release_ConfigurationAndroid"
 
