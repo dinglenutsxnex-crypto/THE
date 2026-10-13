@@ -21,9 +21,9 @@ object LoginTakeover {
     const val ACCOUNT_SYSID = "357912e62ecbd13"
     private const val CERT_HASH_X = "D61109D768EDAA3AD2EFA9EF357BD1AE33D5F0AB"
     private const val APP_ID = "com.nekki.shadowfight3"
-    private const val V = "19221"
-    private const val CONFIG_VER = "1.46.0.10.16731-prod"
-    private const val APP_VER = "1.46.0"
+    private const val V = "19223"
+    private const val CONFIG_VER = "1.46.0.12.16736-prod"
+    private const val APP_VER = "1.46.1"
     private const val BNAME =
         "UnityClient_ShadowFight3_UnityClientShadowFight3Release_ConfigurationAndroid"
 
